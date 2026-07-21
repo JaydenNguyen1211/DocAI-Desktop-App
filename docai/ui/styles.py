@@ -82,15 +82,31 @@ QLabel#recentEmpty {{
     color: {COLORS['muted']}; font-size: 12px; padding-left: 6px;
 }}
 
+/* Vùng cuộn danh sách "Gần đây" / cây thư mục — nền trong suốt.
+   Đặt qua selector objectName (thay vì widget.setStyleSheet() riêng lẻ):
+   một stylesheet cục bộ gắn trực tiếp lên widget cha phá vỡ việc vẽ
+   background của các QLabel badge con bên trong (mất màu nền + bo góc). */
+QScrollArea#recentScroll, QWidget#recentListHost,
+QScrollArea#folderTreeScroll, QWidget#folderTreeListHost {{
+    background: transparent;
+}}
+
+QPushButton#recentDeleteBtn {{
+    background: transparent; border: none; border-radius: 8px;
+    color: #A8A49C; font-size: 11px; font-weight: 700; padding: 0;
+}}
+QPushButton#recentDeleteBtn:hover {{ background: #EAE8E3; color: #C0392B; }}
+
 /* Item lịch sử — thẻ 2 hàng: tiêu đề + (badge · tên file).
    Nền trắng khi active/hover được vẽ bằng QPainter trong RecentItem.paintEvent. */
 QLabel#recentTitle {{
     background: transparent; font-size: 12.5px; font-weight: 600; color: #3A3833;
 }}
-QLabel#recentMeta {{ background: transparent; font-size: 10.5px; color: #A8A49C; }}
+QLabel#recentMeta {{ background: transparent; font-size: 11.5px; color: #A8A49C; }}
 QLabel.fileBadgeDoc, QLabel.fileBadgePdf,
 QLabel.fileBadgeXls, QLabel.fileBadgeOther {{
-    font-size: 8px; font-weight: 700; border-radius: 4px; padding: 2px 5px;
+    font-family: 'Consolas', monospace; font-size: 8px; font-weight: 700;
+    border-radius: 3px; padding: 1px 4px;
 }}
 QLabel.fileBadgeDoc   {{ color: #2A6FDB; background: #EAF1FC; }}
 QLabel.fileBadgePdf   {{ color: #C0392B; background: #FBECEA; }}
@@ -112,6 +128,94 @@ QProgressBar#planBar {{
 QProgressBar#planBar::chunk {{
     background: {COLORS['accent']}; border-radius: 3px;
 }}
+
+/* ── Sidebar · chế độ Thư mục ────────────────────────────── */
+QPushButton#openFolderBtn {{
+    background: {COLORS['primary']}; color: white; border: none;
+    border-radius: 9px; padding: 10px 12px;
+    font-weight: 700; font-size: 12.5px; text-align: center;
+}}
+QPushButton#openFolderBtn:hover {{ background: #333333; }}
+
+QLabel#folderEmptySmallIcon {{
+    background: #EFEDE9; border-radius: 11px;
+}}
+QLabel#folderEmptyHint {{
+    color: {COLORS['muted']}; font-size: 11.5px; line-height: 1.5;
+}}
+
+QFrame#folderPathBadge {{
+    border: 1px dashed #B9C7DC; border-radius: 8px; background: #F2F6FC;
+}}
+QLabel#folderPathLabel {{
+    font-family: 'Consolas', monospace; font-size: 10.5px; color: #4A4842;
+    background: transparent;
+}}
+QPushButton#folderChangeBtn {{
+    background: transparent; border: none;
+    color: {COLORS['accent']}; font-size: 10.5px; font-weight: 700; padding: 0;
+}}
+QPushButton#folderChangeBtn:hover {{ text-decoration: underline; }}
+
+QProgressBar#folderSpinBar, QProgressBar#folderScanBar {{
+    background: #EFEDE9; border: none; border-radius: 2px;
+}}
+QProgressBar#folderSpinBar::chunk, QProgressBar#folderScanBar::chunk {{
+    background: {COLORS['accent']}; border-radius: 2px;
+}}
+QLabel#folderScanStatus {{
+    color: {COLORS['muted']}; font-size: 11.5px; line-height: 1.6;
+}}
+
+QLabel#folderGroupName {{ font-size: 11.5px; font-weight: 600; color: #4A4842; }}
+QLabel#folderGroupCount {{ font-size: 10px; color: #A8A49C; }}
+QLabel#folderFileName {{ font-size: 11.5px; color: #3A3833; }}
+
+QPushButton#folderFileDeleteBtn {{
+    background: transparent; border: none; border-radius: 7px;
+    color: #A8A49C; font-size: 10px; font-weight: 700; padding: 0;
+}}
+QPushButton#folderFileDeleteBtn:hover {{ background: #EAE8E3; color: #C0392B; }}
+
+QCheckBox#folderFileCheck {{ spacing: 0; }}
+QCheckBox#folderFileCheck::indicator {{
+    width: 14px; height: 14px;
+    border: 1.5px solid {COLORS['border']}; border-radius: 4px; background: white;
+}}
+QCheckBox#folderFileCheck::indicator:checked {{
+    background: {COLORS['accent']}; border-color: {COLORS['accent']};
+}}
+
+QLabel.fileBadgeDocMini, QLabel.fileBadgePdfMini,
+QLabel.fileBadgeXlsMini, QLabel.fileBadgeOtherMini {{
+    font-family: 'Consolas', monospace; font-size: 7.5px; font-weight: 700;
+    border-radius: 3px; padding: 1px 3px;
+}}
+QLabel.fileBadgeDocMini   {{ color: #2A6FDB; background: #EAF1FC; }}
+QLabel.fileBadgePdfMini   {{ color: #C0392B; background: #FBECEA; }}
+QLabel.fileBadgeXlsMini   {{ color: #1F8A5B; background: #E6F4EC; }}
+QLabel.fileBadgeOtherMini {{ color: #6E6A63; background: #EFEDE9; }}
+
+QPushButton.filterChip {{
+    background: transparent; border: 1px solid {COLORS['border']};
+    border-radius: 11px; padding: 0 10px; font-size: 9.5px; color: #6E6A63;
+}}
+QPushButton.filterChip:checked {{
+    background: white; border-color: {COLORS['border']};
+    color: {COLORS['text']}; font-weight: 700;
+}}
+
+QFrame#folderFooter {{
+    background: white; border: 1px solid {COLORS['border_soft']}; border-radius: 8px;
+}}
+QLabel#folderFooterLabel {{
+    font-size: 11px; color: {COLORS['muted']}; font-weight: 600; background: transparent;
+}}
+QPushButton#folderFooterAction {{
+    background: transparent; border: none;
+    color: {COLORS['accent']}; font-size: 9.5px; font-weight: 700;
+}}
+QPushButton#folderFooterAction:hover {{ text-decoration: underline; }}
 
 /* ── Chat AI trung tâm (Trạng thái 1) ────────────────────── */
 QFrame#centralChat {{ background: {COLORS['surface']}; }}
@@ -161,6 +265,26 @@ QPushButton.chip {{
     border-radius: 15px; padding: 7px 16px; font-size: 13px;
 }}
 QPushButton.chip:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
+
+/* ── Chế độ Thư mục · nội dung trung tâm (4.1 / 4.3 / 4.4) ── */
+QLabel#folderEmptyIcon {{
+    background: {COLORS['accent_bg']};
+    border: 1px solid #D4E3F8;
+    border-radius: 14px;
+    color: {COLORS['accent']};
+}}
+QLabel#folderReadyIcon {{
+    background: #E6F4EC; border-radius: 24px;
+    color: #1F8A5B; font-size: 22px; font-weight: 700;
+}}
+QFrame#countBox {{
+    background: white; border: 1px solid {COLORS['border_soft']}; border-radius: 9px;
+}}
+QLabel#countBoxNum {{
+    font-family: 'Consolas', monospace; font-size: 16px; font-weight: 700;
+    background: transparent;
+}}
+QLabel#countBoxLabel {{ font-size: 10px; color: {COLORS['muted']}; background: transparent; }}
 
 /* ── Preview panel ───────────────────────────────────────── */
 QFrame#previewPanel {{

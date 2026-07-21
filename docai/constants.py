@@ -40,7 +40,13 @@ FILE_BADGE_STYLE = {
     "pdf":   ("PDF", "pdf"),
     "ppt":   ("PPT", "other"),
     "image": ("IMG", "other"),
+    "xml":   ("XML", "other"),
 }
+
+# Chế độ Thư mục: nhận diện thêm XML (hóa đơn điện tử) — chỉ dùng để tick
+# chọn làm ngữ cảnh, không cần renderer xem trước như chế độ Tệp.
+FOLDER_EXT_MAP = {**EXT_MAP, ".xml": "xml"}
+FOLDER_BADGE = {**FILE_BADGE, "xml": "XML"}
 
 # Quick-action chips theo ngữ cảnh file đang mở
 CONTEXT_CHIPS = {

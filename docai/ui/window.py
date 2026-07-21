@@ -22,6 +22,8 @@ from .chat import ChatPanel
 from .modals import SettingsDialog, ConvertDialog, OverwriteDialog
 from .toast import CacheToast
 from .workers import CallWorker
+from .folder_workspace import FolderWorkspace
+from .folder_scan import FolderScanWorker
 
 _MAX_RECENT = 10
 
@@ -46,6 +48,13 @@ class MainWindow(QMainWindow):
         self._plan = "free"
         self._quota_remaining: Optional[int] = None
         self._quota_limit: Optional[int] = None
+
+        self._context_mode = "file"      # "file" | "folder"
+        self._folder_path: Optional[str] = None
+        self._folder_files: list = []
+        self._folder_selected: list[str] = []
+        self._folder_context_name: Optional[str] = None
+        self._folder_scan_worker: Optional[FolderScanWorker] = None
 
         self._build_ui()
         self._cache_toast = CacheToast(self)
@@ -77,6 +86,11 @@ class MainWindow(QMainWindow):
         self.sidebar.new_chat.connect(self._new_chat)
         self.sidebar.file_selected.connect(self._open_file)
         self.sidebar.mode_changed.connect(self._on_mode_changed)
+        self.sidebar.open_folder.connect(self._open_folder)
+        self.sidebar.change_folder.connect(self._open_folder)
+        self.sidebar.folder_selection_changed.connect(self._on_folder_selection)
+        self.sidebar.recent_deleted.connect(self._on_recent_deleted)
+        self.sidebar.folder_file_removed.connect(self._on_folder_file_removed)
         body.addWidget(self.sidebar)
 
         # Stack: [0] chat AI trung tâm (mở app là sẵn sàng) · [1] workspace (preview + chat)
@@ -113,6 +127,12 @@ class MainWindow(QMainWindow):
 
         ws_lay.addWidget(self.splitter)
         self.stack.addWidget(workspace)
+
+        self.folder_view = FolderWorkspace()
+        self.folder_view.open_requested.connect(self._open_folder)
+        self.folder_view.select_all_requested.connect(self._folder_select_all)
+        self.folder_view.start_chat_requested.connect(self._start_folder_chat)
+        self.stack.addWidget(self.folder_view)
 
         body.addWidget(self.stack, stretch=1)
         root.addLayout(body, stretch=1)
@@ -189,6 +209,7 @@ class MainWindow(QMainWindow):
         if fresh:
             self.chat.clear()
             self._history.clear()
+            self._folder_context_name = None
 
         # Trạng thái 2 — chat thu hẹp bên trái, panel file bên phải.
         self.preview.setVisible(True)
@@ -210,19 +231,85 @@ class MainWindow(QMainWindow):
         self.chat.send_text(text)
 
     def _on_mode_changed(self, mode: str):
-        """Chuyển chế độ nạp ngữ cảnh Tệp ↔ Thư mục (chế độ Thư mục sẽ hoàn thiện sau)."""
+        """Chuyển chế độ nạp ngữ cảnh Tệp ↔ Thư mục."""
         self._context_mode = mode
+        if mode == "folder":
+            self.stack.setCurrentIndex(2)
+        else:
+            self.stack.setCurrentIndex(1 if self._current_path else 0)
 
     def _new_chat(self):
         """Trò chuyện mới → về chat AI trung tâm, xóa hội thoại & ngữ cảnh file."""
         self._current_path = None
         self._current_type = None
+        self._folder_context_name = None
         self.chat.clear()
         self._history.clear()
         self.preview.setVisible(False)
         self._refresh_sidebar()
         self.stack.setCurrentIndex(0)
         self.welcome.input_box.setFocus()
+
+    # ══ Chế độ Thư mục — mở / quét / chọn file làm ngữ cảnh ══════════════════
+
+    def _open_folder(self):
+        path = QFileDialog.getExistingDirectory(self, "Chọn thư mục làm việc", "")
+        if not path:
+            return
+
+        self._folder_path = path
+        self._folder_files = []
+        self._folder_selected = []
+        folder_name = Path(path).name or path
+
+        self.sidebar.show_folder_scanning(path)
+        self.folder_view.show_scanning(folder_name)
+        self.stack.setCurrentIndex(2)
+
+        self._folder_scan_worker = FolderScanWorker(path)
+        self._folder_scan_worker.progress.connect(self._on_folder_scan_progress)
+        self._folder_scan_worker.done.connect(self._on_folder_scan_done)
+        self._folder_scan_worker.start()
+
+    def _on_folder_scan_progress(self, done: int, total: int, counts: dict):
+        self.sidebar.update_folder_scan_progress(done, total)
+        self.folder_view.update_progress(done, total, counts)
+
+    def _on_folder_scan_done(self, files: list, counts: dict):
+        self._folder_files = files
+        folder_name = Path(self._folder_path).name or self._folder_path
+        self.sidebar.show_folder_ready(folder_name, files, counts)
+        self.folder_view.show_ready(folder_name, len(files))
+
+    def _on_folder_selection(self, paths: list[str]):
+        self._folder_selected = paths
+
+    def _on_folder_file_removed(self, path: str):
+        """Bấm xóa 1 file trong cây thư mục — bỏ khỏi danh sách/ngữ cảnh, không đụng file thật."""
+        self._folder_files = [f for f in self._folder_files if f.path != path]
+        self._folder_selected = [p for p in self._folder_selected if p != path]
+
+    def _folder_select_all(self):
+        self.sidebar.select_all_folder_files()
+
+    def _start_folder_chat(self):
+        selected = self._folder_selected or [f.path for f in self._folder_files]
+        if not selected or not self._folder_path:
+            return
+
+        self._current_path = None
+        self._current_type = None
+        self.chat.clear()
+        self._history.clear()
+        self.preview.setVisible(False)
+        self.chat.set_chips(CONTEXT_CHIPS[None])
+
+        folder_name = Path(self._folder_path).name or self._folder_path
+        self._folder_context_name = f"{folder_name} ({len(selected)} file)"
+        self.stack.setCurrentIndex(1)
+        self.chat.add_system(
+            f"Đã mở thư mục «{folder_name}» — {len(selected)} file được chọn làm ngữ cảnh")
+        self.chat.input_box.setFocus()
 
     # ══ Sidebar / recent ═════════════════════════════════════════════════════
 
@@ -239,6 +326,10 @@ class MainWindow(QMainWindow):
         cfg["recent_files"] = [r for r in cfg.get("recent_files", []) if r != path]
         save_config(cfg)
         self._refresh_sidebar()
+
+    def _on_recent_deleted(self, path: str):
+        """Bấm xóa 1 item trong tab "Tệp" — chỉ gỡ khỏi lịch sử, không xóa file thật."""
+        self._remove_recent(path)
 
     def _refresh_sidebar(self):
         recent = load_config().get("recent_files", [])
@@ -280,7 +371,9 @@ class MainWindow(QMainWindow):
             self._start_edit(text)
             return
 
-        file_name = Path(self._current_path).name if self._current_path else None
+        file_name = (
+            Path(self._current_path).name if self._current_path
+            else self._folder_context_name)
         business = load_config().get("business", {})
 
         # Meta (file-card / ghi đè) suy từ câu lệnh; text lấy từ server.
