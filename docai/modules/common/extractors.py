@@ -1,0 +1,82 @@
+import csv
+import io
+import os
+
+from .models import AttachedFile
+
+try:
+    from docx import Document as DocxDocument
+    HAS_DOCX = True
+except ImportError:
+    HAS_DOCX = False
+
+try:
+    import openpyxl
+    HAS_XLSX = True
+except ImportError:
+    HAS_XLSX = False
+
+try:
+    import fitz
+    HAS_PDF_TEXT = True
+except ImportError:
+    HAS_PDF_TEXT = False
+
+
+def extract_word(path: str) -> AttachedFile:
+    doc = DocxDocument(path)
+    lines = []
+    body = doc.element.body
+    for child in body:
+        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        if tag == "p":
+            from docx.text.paragraph import Paragraph
+            paragraph = Paragraph(child, doc)
+            lines.append(paragraph.text)
+        elif tag == "tbl":
+            from docx.table import Table
+            table = Table(child, doc)
+            for row in table.rows:
+                cells = [cell.text.replace("\n", " ").strip() for cell in row.cells]
+                lines.append(" | ".join(cells))
+            lines.append("")
+    return AttachedFile(path=path, name=os.path.basename(path),
+                        file_type="word", claude_content="\n".join(lines))
+
+
+def extract_excel(path: str) -> AttachedFile:
+    wb = openpyxl.load_workbook(path, data_only=True)
+    parts = []
+    for sname in wb.sheetnames:
+        ws = wb[sname]
+        rows = [[str(cell) if cell is not None else "" for cell in row]
+                for row in ws.iter_rows(values_only=True)]
+        while rows and all(cell == "" for cell in rows[-1]):
+            rows.pop()
+        parts.append(f"--- Sheet: {sname} ---")
+        buf = io.StringIO()
+        csv.writer(buf).writerows(rows)
+        parts.extend([buf.getvalue().rstrip(), ""])
+    return AttachedFile(path=path, name=os.path.basename(path),
+                        file_type="excel", claude_content="\n".join(parts))
+
+
+def pdf_page_texts(path: str) -> list[str]:
+    """Văn bản từng trang PDF (rỗng nếu trang không có lớp chữ — VD PDF quét
+    ảnh thuần túy). Dùng cho tính năng "Trích xuất toàn bộ văn bản" (cục bộ,
+    không qua AI) và tìm kiếm từ khóa trong PDF."""
+    doc = fitz.open(path)
+    try:
+        return [page.get_text().strip() for page in doc]
+    finally:
+        doc.close()
+
+
+def extract_pdf(path: str) -> AttachedFile:
+    pages = pdf_page_texts(path)
+    parts = []
+    for page_number, text in enumerate(pages, start=1):
+        parts.append(f"--- Trang {page_number} ---")
+        parts.append(text or "(trang trống hoặc không có lớp chữ — có thể là PDF quét ảnh)")
+    return AttachedFile(path=path, name=os.path.basename(path),
+                        file_type="pdf", claude_content="\n".join(parts))
