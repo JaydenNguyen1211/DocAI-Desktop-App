@@ -1,30 +1,48 @@
 """Xuất ảnh PNG của biểu đồ Excel bằng COM (Excel.Application) để ghép vào bản
-xem trước tự vẽ (`renderers._render_excel_sheets` — bộ vẽ PIL riêng, không tự
-vẽ được chart).
+xem trước tự vẽ — chỉ hoạt động trên Windows. Trên macOS/Linux, `export_all_charts`
+trả về {} và biểu đồ hiện dưới dạng placeholder; `export_workbook_pdf` dùng
+LibreOffice thay thế.
 
 Chỉ dùng đúng 1 API COM hẹp — `Chart.Export()` — KHÔNG đụng đến vị trí/kích
-thước cửa sổ Application (đó chính là nguyên nhân lỗi COM cũ trong bản trước
-của app, "Unable to set the Left property of the Application class" — xem
-ghi chú "Excel loi.png"). Mở file READ-ONLY và luôn `Close(SaveChanges=False)`
+thước cửa sổ Application. Mở file READ-ONLY và luôn `Close(SaveChanges=False)`
 — không để Excel tự tính lại/"sửa" rồi ghi đè XML mà code openpyxl không
 lường trước.
-
-Không có Excel cài trên máy, hoặc lỗi COM bất kỳ → trả về {} để nơi gọi tự vẽ
-placeholder, không làm hỏng cả bản xem trước.
 """
 import os
+import sys
 
 
 class ExcelComError(Exception):
-    """Không xuất được PDF qua Excel COM — thông báo tiếng Việt cho người dùng."""
+    """Không xuất được PDF — thông báo tiếng Việt cho người dùng."""
 
 
 def export_workbook_pdf(path: str, out_path: str) -> str:
-    """Xuất toàn bộ workbook ra PDF qua Excel COM (`ExportAsFixedFormat`).
+    """Xuất toàn bộ workbook ra PDF.
 
-    Khác với `export_all_charts()` (tiện ích cho bản xem trước, lỗi bỏ qua
-    lặng lẽ), đây là bản thân thao tác CHUYỂN ĐỔI người dùng yêu cầu — lỗi
-    phải báo rõ, không im lặng trả rỗng."""
+    Windows: dùng Excel COM (`ExportAsFixedFormat`).
+    macOS/Linux: dùng LibreOffice CLI.
+    """
+    if sys.platform == "darwin":
+        from ..common._msoffice_mac import is_available, excel_to_pdf as ms_excel_to_pdf, MsOfficeMacError
+        from ..common._soffice import convert_to_pdf, SofficeError
+        if is_available("excel"):
+            try:
+                ms_excel_to_pdf(os.path.abspath(path), os.path.abspath(out_path))
+                return os.path.abspath(out_path)
+            except MsOfficeMacError as exc:
+                raise ExcelComError(str(exc))
+        try:
+            return convert_to_pdf(os.path.abspath(path), os.path.abspath(out_path))
+        except SofficeError as exc:
+            raise ExcelComError(str(exc))
+
+    if sys.platform != "win32":
+        from ..common._soffice import convert_to_pdf, SofficeError
+        try:
+            return convert_to_pdf(os.path.abspath(path), os.path.abspath(out_path))
+        except SofficeError as exc:
+            raise ExcelComError(str(exc))
+
     try:
         import pythoncom
         import win32com.client
@@ -42,7 +60,7 @@ def export_workbook_pdf(path: str, out_path: str) -> str:
         excel.DisplayAlerts = False
         wb = excel.Workbooks.Open(abs_path, ReadOnly=True, UpdateLinks=0)
         wb.ExportAsFixedFormat(0, abs_out)  # 0 = xlTypePDF
-    except Exception as exc:  # noqa: BLE001 — mọi lỗi COM đều quy về 1 thông báo
+    except Exception as exc:
         raise ExcelComError(f"Không xuất được PDF từ Excel: {exc}")
     finally:
         try:
@@ -60,11 +78,14 @@ def export_workbook_pdf(path: str, out_path: str) -> str:
 
 
 def export_all_charts(path: str, tmp_dir: str) -> dict:
-    """Trả về {(tên_sheet, thứ_tự_chart_trong_sheet_0_based): đường_dẫn_png}.
+    """Trả về {(tên_sheet, thứ_tự_chart_0_based): đường_dẫn_png}.
 
-    Mở đúng 1 lần Excel Application cho cả workbook (không mở lại theo từng
-    chart) để giảm rủi ro treo tiến trình EXCEL.EXE.
+    Chỉ hoạt động trên Windows (Excel COM). Trên macOS/Linux trả về {} để
+    nơi gọi tự vẽ placeholder.
     """
+    if sys.platform != "win32":
+        return {}
+
     try:
         import pythoncom
         import win32com.client

@@ -6,8 +6,6 @@ import threading
 from PySide6.QtGui import QPixmap, QImage
 
 try:
-    import win32com.client as _w32      # noqa: F401
-    import pythoncom as _pycom          # noqa: F401
     import fitz as _fitz                # noqa: F401
     from PIL import Image as _PILImg    # noqa: F401
     HAS_PAGEPREVIEW = True

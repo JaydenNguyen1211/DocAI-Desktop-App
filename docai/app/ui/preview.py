@@ -1,6 +1,8 @@
-"""Panel xem trước tài liệu — render trang qua Word COM / fitz / PIL."""
+"""Panel xem trước tài liệu — render trang qua Word COM / LibreOffice / fitz / PIL."""
 import bisect
 import os
+import subprocess
+import sys
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -28,6 +30,15 @@ _SOURCE_FACTORIES = {
     "image": image_page_source,
     "ppt": ppt_page_source,
 }
+
+
+def _open_path(path: str) -> None:
+    if sys.platform == "win32":
+        os.startfile(path)  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.run(["open", path], check=False)
+    else:
+        subprocess.run(["xdg-open", path], check=False)
 
 
 class PagePreviewWidget(QScrollArea):
@@ -409,7 +420,7 @@ class PreviewPanel(QFrame):
             return
         if file_type not in ("image",) and not HAS_PAGEPREVIEW:
             self.pages.show_message(
-                "Cần cài pywin32 + PyMuPDF + Pillow để xem trước tài liệu.")
+                "Cần cài PyMuPDF + Pillow để xem trước tài liệu.")
             return
 
         self.pages.show_message("Đang mở tài liệu…")
@@ -488,8 +499,8 @@ class PreviewPanel(QFrame):
 
     def _open_folder(self):
         if self._current_path:
-            os.startfile(str(Path(self._current_path).parent))  # noqa: S606 — Windows only
+            _open_path(str(Path(self._current_path).parent))
 
     def _open_with(self):
         if self._current_path:
-            os.startfile(self._current_path)  # noqa: S606 — Windows only
+            _open_path(self._current_path)

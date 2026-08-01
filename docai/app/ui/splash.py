@@ -15,13 +15,50 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def detect_ms_word() -> bool:
-    """Kiểm tra máy có đăng ký Word COM không (đọc registry, không mở Word)."""
+    """Kiểm tra máy có đăng ký Word COM không (đọc registry, chỉ có ý nghĩa trên Windows)."""
     try:
         import winreg
         winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"))
         return True
-    except OSError:
+    except (OSError, ImportError):
         return False
+
+
+def detect_office_engine() -> tuple[str, str]:
+    """Phát hiện engine Office phù hợp với platform hiện tại.
+
+    Returns (engine_key, status_message).
+    engine_key: "word_com" | "word_mac" | "libreoffice" | "none"
+    """
+    import sys
+    if sys.platform == "win32":
+        if detect_ms_word():
+            return "word_com", "Đã tìm thấy Microsoft Word — dùng Word COM để xử lý tài liệu."
+        from ...modules.common._soffice import _find_soffice
+        try:
+            _find_soffice()
+            return "libreoffice", "Không thấy Microsoft Word — sẽ dùng LibreOffice dự phòng."
+        except Exception:
+            return "none", "Không thấy Microsoft Word hay LibreOffice — chức năng chuyển đổi bị hạn chế."
+
+    if sys.platform == "darwin":
+        from ...modules.common._msoffice_mac import is_available
+        from ...modules.common._soffice import _find_soffice, SofficeError
+        if is_available("word"):
+            return "word_mac", "Đã tìm thấy Microsoft Office for Mac — dùng Office để xử lý tài liệu."
+        try:
+            _find_soffice()
+            return "libreoffice", "Không thấy Microsoft Office — sẽ dùng LibreOffice dự phòng."
+        except SofficeError:
+            return "none", "Không thấy Microsoft Office hay LibreOffice — chức năng chuyển đổi bị hạn chế."
+
+    # Linux
+    from ...modules.common._soffice import _find_soffice, SofficeError
+    try:
+        _find_soffice()
+        return "libreoffice", "Đang dùng LibreOffice để xử lý tài liệu."
+    except SofficeError:
+        return "none", "Không thấy LibreOffice — chức năng chuyển đổi bị hạn chế."
 
 
 class SplashWindow(QWidget):
@@ -108,7 +145,7 @@ class SplashWindow(QWidget):
         lay.addLayout(switch_row)
 
         lay.addSpacing(6)
-        self.status_lbl = QLabel("Đang kiểm tra Microsoft Word…")
+        self.status_lbl = QLabel("Đang kiểm tra phần mềm Office…")
         self.status_lbl.setObjectName("splashStatus")
         self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_lbl.setWordWrap(True)
@@ -133,19 +170,15 @@ class SplashWindow(QWidget):
             self.switch_btn.setText("Đăng ký")
         self.error_lbl.setVisible(False)
 
-    # ── Kiểm tra Word COM ────────────────────────────────────────────────────
+    # ── Kiểm tra Office engine ───────────────────────────────────────────────
 
     def _check_word(self):
-        has_word = detect_ms_word()
+        engine, msg = detect_office_engine()
         from ...account.config import load_config, save_config
         cfg = load_config()
-        cfg["office_engine"] = "word_com" if has_word else "libreoffice"
+        cfg["office_engine"] = engine
         save_config(cfg)
-        self.status_lbl.setText(
-            "Đã tìm thấy Microsoft Word — dùng Word COM để xử lý tài liệu."
-            if has_word else
-            "Không thấy Microsoft Word — sẽ dùng LibreOffice dự phòng."
-        )
+        self.status_lbl.setText(msg)
 
     # ── Đăng nhập / Đăng ký ──────────────────────────────────────────────────
 

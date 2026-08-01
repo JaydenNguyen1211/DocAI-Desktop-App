@@ -1,5 +1,7 @@
 """Main Window — 1 cửa sổ duy nhất: sidebar · preview tài liệu · chat AI."""
 import os
+import subprocess
+import sys
 import shutil
 import tempfile
 from pathlib import Path
@@ -38,6 +40,15 @@ from .folder_workspace import FolderWorkspace
 from .folder_scan import FolderScanWorker
 
 _MAX_RECENT = 10
+
+
+def _open_path(path: str) -> None:
+    if sys.platform == "win32":
+        os.startfile(path)  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.run(["open", path], check=False)
+    else:
+        subprocess.run(["xdg-open", path], check=False)
 
 
 class MainWindow(QMainWindow):
@@ -756,7 +767,7 @@ class MainWindow(QMainWindow):
         self.chat.add_file_card(name, badge, note="Vừa tạo")
 
         if self._gen_open_after:
-            os.startfile(final_path)  # noqa: S606 — Windows only
+            _open_path(final_path)
 
     # ══ Modal: Cài đặt ═══════════════════════════════════════════════════════
 
@@ -775,7 +786,7 @@ class MainWindow(QMainWindow):
     def _on_file_card(self, file_name: str):
         path_obj = Path(file_name)
         if path_obj.is_absolute() and path_obj.exists():
-            os.startfile(str(path_obj))  # noqa: S606 — Windows only
+            _open_path(str(path_obj))
             return
         QMessageBox.information(
             self, APP_NAME,
