@@ -74,20 +74,17 @@ def _with_accessible_paths(input_path: str, out_path: str, fn) -> None:
 
 
 def word_to_pdf(input_path: str, out_path: str) -> None:
-    def _convert(src: str, dst: str) -> None:
-        # "document 1" works; "active document" raises -1708 in Word 16
-        # file format enum is "save as PDF file" (not "format PDF")
-        script = (
-            f'tell application "Microsoft Word"\n'
-            f'    open POSIX file "{_safe_path(src)}"\n'
-            f'    delay 1\n'
-            f'    set theDoc to document 1\n'
-            f'    save as theDoc file name "{_safe_path(dst)}" file format save as PDF file\n'
-            f'    close theDoc saving no\n'
-            f'end tell'
+    """Convert .docx → PDF using docx2pdf (wraps Microsoft Word on macOS)."""
+    try:
+        from docx2pdf import convert as _d2p_convert
+    except ImportError:
+        raise MsOfficeMacError(
+            "Cần cài docx2pdf: pip install docx2pdf"
         )
-        _run_applescript(script)
-    _with_accessible_paths(input_path, out_path, _convert)
+    try:
+        _d2p_convert(input_path, out_path)
+    except Exception as exc:
+        raise MsOfficeMacError(f"docx2pdf thất bại: {exc}")
 
 
 def excel_to_pdf(input_path: str, out_path: str) -> None:

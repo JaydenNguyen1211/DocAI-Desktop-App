@@ -7,3 +7,4 @@ pillow==12.2.0
 lxml==6.1.1
 pymupdf==1.28.0
 pywin32==312; sys_platform == "win32"
+docx2pdf==0.1.8; sys_platform == "darwin"
