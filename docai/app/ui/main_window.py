@@ -786,7 +786,7 @@ class MainWindow(QMainWindow):
     def _on_file_card(self, file_name: str):
         path_obj = Path(file_name)
         if path_obj.is_absolute() and path_obj.exists():
-            _open_path(str(path_obj))
+            self._open_file(str(path_obj))
             return
         QMessageBox.information(
             self, APP_NAME,
