@@ -1,9 +1,13 @@
-"""Cây file của thư mục làm việc (chế độ Thư mục) — tick chọn, lọc theo loại,
-nhóm theo thư mục con cấp 1. Dùng trong Sidebar, ở trạng thái "sẵn sàng"."""
+"""Cây file của thư mục làm việc (chế độ Thư mục) — lọc theo loại, nhóm theo
+thư mục con cấp 1. Dùng trong Sidebar, ở trạng thái "sẵn sàng".
+
+Chỉ là DANH SÁCH THAM CHIẾU cho Chat Panel (luôn mở độc lập, không cần thao
+tác gì ở đây trước) — không có khái niệm tick chọn; file nào là input do
+người dùng nói rõ trong chat, xem `modules.common.doc_set.resolve_input_files`."""
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QButtonGroup, QFrame, QScrollArea,
 )
 
@@ -67,9 +71,8 @@ class _GroupRow(QFrame):
 
 
 class _FileRow(QFrame):
-    """Dòng file — checkbox · badge loại · tên file · xóa."""
+    """Dòng file — badge loại · tên file · xóa khỏi danh sách."""
 
-    changed = Signal()
     remove_clicked = Signal()
 
     def __init__(self, sf: ScannedFile, parent=None):
@@ -80,12 +83,6 @@ class _FileRow(QFrame):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(20, 0, 3, 0)
         lay.setSpacing(6)
-
-        self.checkbox = QCheckBox()
-        self.checkbox.setObjectName("folderFileCheck")
-        self.checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.checkbox.stateChanged.connect(lambda _: self.changed.emit())
-        lay.addWidget(self.checkbox)
 
         label, key = FILE_BADGE_STYLE.get(sf.ext_type, ("FILE", "other"))
         badge = QLabel(label)
@@ -107,17 +104,10 @@ class _FileRow(QFrame):
         self._delete_btn.clicked.connect(self.remove_clicked.emit)
         lay.addWidget(self._delete_btn)
 
-    def is_checked(self) -> bool:
-        return self.checkbox.isChecked()
-
-    def set_checked(self, on: bool):
-        self.checkbox.setChecked(on)
-
 
 class FolderTree(QWidget):
-    """Danh sách file quét được — lọc theo loại, tick chọn làm ngữ cảnh chat."""
+    """Danh sách file quét được — lọc theo loại, chỉ để xem/tham chiếu."""
 
-    selection_changed = Signal(list)   # list[str] đường dẫn đã tick
     file_removed = Signal(str)         # đường dẫn file vừa bị xóa khỏi danh sách
 
     def __init__(self, parent=None):
@@ -188,7 +178,6 @@ class FolderTree(QWidget):
             rows = []
             for sf in items:
                 row = _FileRow(sf)
-                row.changed.connect(self._emit_selection)
                 row.remove_clicked.connect(lambda row_widget=row: self._remove_row(row_widget))
                 self._list_lay.insertWidget(insert_at, row)
                 insert_at += 1
@@ -267,20 +256,4 @@ class FolderTree(QWidget):
         elif header is not None:
             header.set_count(len(rows))
 
-        self._emit_selection()
         self.file_removed.emit(path)
-
-    # ── Chọn / bỏ chọn ──────────────────────────────────────────────────────
-
-    def select_all(self):
-        for row in self._rows:
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(True)
-            row.checkbox.blockSignals(False)
-        self._emit_selection()
-
-    def checked_paths(self) -> list[str]:
-        return [row.file.path for row in self._rows if row.is_checked()]
-
-    def _emit_selection(self):
-        self.selection_changed.emit(self.checked_paths())

@@ -22,6 +22,12 @@ try:
 except ImportError:
     HAS_PDF_TEXT = False
 
+try:
+    from pptx import Presentation
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
+
 
 def extract_word(path: str) -> AttachedFile:
     doc = DocxDocument(path)
@@ -59,6 +65,26 @@ def extract_excel(path: str) -> AttachedFile:
         parts.extend([buf.getvalue().rstrip(), ""])
     return AttachedFile(path=path, name=os.path.basename(path),
                         file_type="excel", claude_content="\n".join(parts))
+
+
+def extract_pptx(path: str) -> AttachedFile:
+    prs = Presentation(path)
+    parts = []
+    for slide_index, slide in enumerate(prs.slides, start=1):
+        parts.append(f"--- Slide {slide_index} ---")
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for paragraph in shape.text_frame.paragraphs:
+                    text = "".join(run.text for run in paragraph.runs)
+                    if text.strip():
+                        parts.append(text)
+            if shape.has_table:
+                for row in shape.table.rows:
+                    cells = [cell.text.replace("\n", " ").strip() for cell in row.cells]
+                    parts.append(" | ".join(cells))
+        parts.append("")
+    return AttachedFile(path=path, name=os.path.basename(path),
+                        file_type="ppt", claude_content="\n".join(parts))
 
 
 def pdf_page_texts(path: str) -> list[str]:

@@ -35,11 +35,13 @@ class FolderScanWorker(QThread):
     def run(self):
         root = Path(self._root)
         try:
-            all_paths = [
-                Path(dirpath) / fn
-                for dirpath, _dirnames, filenames in os.walk(root)
-                for fn in filenames
-            ]
+            all_paths = []
+            for dirpath, dirnames, filenames in os.walk(root):
+                # Bỏ qua thư mục thùng rác nội bộ của DocAI (xem
+                # `modules.common.folder_ops.delete_file_with_undo`) — file
+                # vừa "xóa" (có thể hoàn tác) không được hiện lại như file thật.
+                dirnames[:] = [d for d in dirnames if d != ".docai_trash"]
+                all_paths.extend(Path(dirpath) / fn for fn in filenames)
         except OSError:
             all_paths = []
 

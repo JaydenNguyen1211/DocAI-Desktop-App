@@ -21,6 +21,9 @@ from ...modules.ai.generation import (
 )
 from ...modules.common.creators import create_word, create_pptx
 from ...modules.common.extractors import extract_pdf
+from ...modules.common.doc_set import process_document_set, resolve_input_files, DocSetResult
+from ...modules.common.folder_ops import detect_file_mgmt_intent, create_empty_file, \
+    delete_file_with_undo, restore_file, rename_file, FolderOpError
 from ...pipeline.editing import check_editable, EditError
 from .. import controller
 from ..constants import (
@@ -36,8 +39,10 @@ from .modals import SettingsDialog, ConvertDialog, OverwriteDialog, NewDocumentD
 from .doc_creation_widgets import DocTypePicker, SuggestionCard, QuotaWarningCard, GenErrorCard
 from .doc_generation import DocGenWorker
 from .toast import CacheToast
-from .folder_workspace import FolderWorkspace
-from .folder_scan import FolderScanWorker
+from .folder_scan import FolderScanWorker, ScannedFile
+from .save_output import save_staged_file
+
+_STAGING_DIR = str(Path(tempfile.gettempdir()) / "DocAI" / "staging")
 
 _MAX_RECENT = 10
 
@@ -67,16 +72,18 @@ class MainWindow(QMainWindow):
         self._edit_worker: Optional[CallWorker] = None
         self._me_worker: Optional[CallWorker] = None
         self._pending_edit_notes: list[str] = []
+        self._pending_docset_outputs: list[str] = []
+        self._docset_worker: Optional[CallWorker] = None
         self._history: list[dict] = []   # {role, content} — ngữ cảnh cho AI
         self._plan = "free"
         self._quota_remaining: Optional[int] = None
         self._quota_limit: Optional[int] = None
 
-        self._context_mode = "file"      # "file" | "folder"
         self._folder_path: Optional[str] = None
         self._folder_files: list = []
-        self._folder_selected: list[str] = []
         self._folder_context_name: Optional[str] = None
+        self._attached_files: list[str] = []   # đính kèm qua chat, cuộc trò chuyện hiện tại
+        self._recent_outputs: list[str] = []   # output process_document_set(), mới nhất cuối
         self._folder_scan_worker: Optional[FolderScanWorker] = None
 
         self._build_ui()
@@ -108,15 +115,15 @@ class MainWindow(QMainWindow):
         self.sidebar = Sidebar()
         self.sidebar.new_chat.connect(self._new_chat)
         self.sidebar.file_selected.connect(self._open_file)
-        self.sidebar.mode_changed.connect(self._on_mode_changed)
         self.sidebar.open_folder.connect(self._open_folder)
         self.sidebar.change_folder.connect(self._open_folder)
-        self.sidebar.folder_selection_changed.connect(self._on_folder_selection)
         self.sidebar.recent_deleted.connect(self._on_recent_deleted)
         self.sidebar.folder_file_removed.connect(self._on_folder_file_removed)
         body.addWidget(self.sidebar)
 
         # Stack: [0] chat AI trung tâm (mở app là sẵn sàng) · [1] workspace (preview + chat)
+        # — Chat Panel luôn độc lập, chuyển tab Tệp/Thư mục ở sidebar không đụng
+        # tới stack này; sidebar chỉ là nguồn tham chiếu file cho chat.
         self.stack = QStackedWidget()
 
         self.welcome = CentralChat()
@@ -151,12 +158,6 @@ class MainWindow(QMainWindow):
 
         ws_lay.addWidget(self.splitter)
         self.stack.addWidget(workspace)
-
-        self.folder_view = FolderWorkspace()
-        self.folder_view.open_requested.connect(self._open_folder)
-        self.folder_view.select_all_requested.connect(self._folder_select_all)
-        self.folder_view.start_chat_requested.connect(self._start_folder_chat)
-        self.stack.addWidget(self.folder_view)
 
         body.addWidget(self.stack, stretch=1)
         root.addLayout(body, stretch=1)
@@ -209,10 +210,21 @@ class MainWindow(QMainWindow):
     # ══ Mở file / luồng bắt đầu ══════════════════════════════════════════════
 
     def _pick_file(self):
-        """Đính kèm file từ ô chat workspace — gắn vào cuộc trò chuyện đang có."""
+        """Đính kèm file từ ô chat workspace — gắn vào cuộc trò chuyện đang có.
+
+        Trong hội thoại chế độ Thư mục (đang xử lý nhiều file, chưa mở file
+        đơn lẻ nào) — đính kèm KHÔNG chuyển sang chế độ 1-file, chỉ thêm file
+        vào danh sách ứng viên cho `resolve_input_files()` (xem
+        `_start_folder_task`), để không làm mất ngữ cảnh nhiều file đang có."""
         path, _ = QFileDialog.getOpenFileName(self, "Chọn file", "", FILE_DIALOG_FILTER)
-        if path:
-            self._open_file(path, fresh=False)
+        if not path:
+            return
+        if self._folder_context_name and not self._current_path:
+            if path not in self._attached_files:
+                self._attached_files.append(path)
+            self.chat.add_system(f"Đã đính kèm «{Path(path).name}» vào ngữ cảnh")
+            return
+        self._open_file(path, fresh=False)
 
     def _open_file(self, path: str, fresh: bool = True):
         path_obj = Path(path)
@@ -229,6 +241,8 @@ class MainWindow(QMainWindow):
             self.chat.clear()
             self._history.clear()
             self._folder_context_name = None
+            self._attached_files = []
+            self._recent_outputs = []
 
         self._adopt_current_file(str(path_obj), ftype)
         verb = "Đã mở" if fresh else "Đã đính kèm"
@@ -261,19 +275,13 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(1)
         self.chat.send_text(text)
 
-    def _on_mode_changed(self, mode: str):
-        """Chuyển chế độ nạp ngữ cảnh Tệp ↔ Thư mục."""
-        self._context_mode = mode
-        if mode == "folder":
-            self.stack.setCurrentIndex(2)
-        else:
-            self.stack.setCurrentIndex(1 if self._current_path else 0)
-
     def _new_chat(self):
         """Trò chuyện mới → về chat AI trung tâm, xóa hội thoại & ngữ cảnh file."""
         self._current_path = None
         self._current_type = None
         self._folder_context_name = None
+        self._attached_files = []
+        self._recent_outputs = []
         self.chat.clear()
         self._history.clear()
         self.preview.setVisible(False)
@@ -281,7 +289,10 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
         self.welcome.input_box.setFocus()
 
-    # ══ Chế độ Thư mục — mở / quét / chọn file làm ngữ cảnh ══════════════════
+    # ══ Chế độ Thư mục — mở / quét, rồi chat sẵn sàng ngay ═══════════════════
+    # Chat Panel luôn là trung tâm — không có bước "tick chọn file rồi bấm Bắt
+    # đầu chat"; sidebar (cây thư mục) chỉ là nguồn tham chiếu tên file cho
+    # `doc_set.resolve_input_files()`. Quét xong là chat nhận lệnh được ngay.
 
     def _open_folder(self):
         path = QFileDialog.getExistingDirectory(self, "Chọn thư mục làm việc", "")
@@ -290,44 +301,29 @@ class MainWindow(QMainWindow):
 
         self._folder_path = path
         self._folder_files = []
-        self._folder_selected = []
-        folder_name = Path(path).name or path
 
         self.sidebar.show_folder_scanning(path)
-        self.folder_view.show_scanning(folder_name)
-        self.stack.setCurrentIndex(2)
 
         self._folder_scan_worker = FolderScanWorker(path)
         self._folder_scan_worker.progress.connect(self._on_folder_scan_progress)
         self._folder_scan_worker.done.connect(self._on_folder_scan_done)
         self._folder_scan_worker.start()
 
-    def _on_folder_scan_progress(self, done: int, total: int, counts: dict):
+    def _on_folder_scan_progress(self, done: int, total: int):
         self.sidebar.update_folder_scan_progress(done, total)
-        self.folder_view.update_progress(done, total, counts)
 
     def _on_folder_scan_done(self, files: list, counts: dict):
         self._folder_files = files
         folder_name = Path(self._folder_path).name or self._folder_path
         self.sidebar.show_folder_ready(folder_name, files, counts)
-        self.folder_view.show_ready(folder_name, len(files))
-
-    def _on_folder_selection(self, paths: list[str]):
-        self._folder_selected = paths
+        self._start_folder_chat(folder_name, len(files))
 
     def _on_folder_file_removed(self, path: str):
-        """Bấm xóa 1 file trong cây thư mục — bỏ khỏi danh sách/ngữ cảnh, không đụng file thật."""
-        self._folder_files = [file_entry for file_entry in self._folder_files if file_entry.path != path]
-        self._folder_selected = [sel_path for sel_path in self._folder_selected if sel_path != path]
+        """Bấm xóa 1 file trong cây thư mục — chỉ gỡ khỏi danh sách tham chiếu,
+        không đụng file thật."""
+        self._folder_files = [f for f in self._folder_files if f.path != path]
 
-    def _folder_select_all(self):
-        self.sidebar.select_all_folder_files()
-
-    def _start_folder_chat(self):
-        selected = self._folder_selected or [file_entry.path for file_entry in self._folder_files]
-        if not selected or not self._folder_path:
-            return
-
+    def _start_folder_chat(self, folder_name: str, file_count: int):
         self._current_path = None
         self._current_type = None
         self.chat.clear()
@@ -335,12 +331,198 @@ class MainWindow(QMainWindow):
         self.preview.setVisible(False)
         self.chat.set_chips(CONTEXT_CHIPS[None])
 
-        folder_name = Path(self._folder_path).name or self._folder_path
-        self._folder_context_name = f"{folder_name} ({len(selected)} file)"
+        self._attached_files = []
+        self._recent_outputs = []
+        self._folder_context_name = f"{folder_name} ({file_count} file)"
         self.stack.setCurrentIndex(1)
-        self.chat.add_system(
-            f"Đã mở thư mục «{folder_name}» — {len(selected)} file được chọn làm ngữ cảnh")
+        self.chat.add_system(f"Đã mở thư mục «{folder_name}» — {file_count} file")
         self.chat.input_box.setFocus()
+
+    # ══ Thao tác file trong thư mục (tạo/xóa/đổi tên/mở 1 file) ═════════════
+    # Theo thiết kế D:\Tools\DocAI\Plan\V4\Folder\screens_folder — nhận diện
+    # cục bộ trước, không khớp mới rơi xuống process_document_set().
+
+    def _handle_folder_message(self, text: str):
+        folder_paths = [f.path for f in self._folder_files]
+        intent = detect_file_mgmt_intent(text, folder_paths)
+        if intent is None:
+            self._start_folder_task(text)
+            return
+
+        if intent.ambiguous:
+            self._ask_folder_mgmt_clarify(intent.kind)
+            return
+
+        if intent.kind == "create":
+            self._do_create_file(intent)
+        elif intent.kind == "delete":
+            self._do_delete_file(intent)
+        elif intent.kind == "rename":
+            self._do_rename_file(intent)
+        elif intent.kind == "open":
+            self._do_open_folder_file(intent)
+
+    def _ask_folder_mgmt_clarify(self, kind: str):
+        messages = {
+            "create": "Bạn muốn tạo file loại gì (Word/Excel/PowerPoint) và tên là gì? "
+                     'VD: Tạo file Excel mới tên "BaoCao.xlsx"',
+            "delete": "Chưa rõ bạn muốn xóa file nào — hãy nêu rõ tên file (có thể để trong "
+                     "ngoặc kép).",
+            "rename": 'Chưa rõ file cần đổi tên hoặc tên mới — VD: Đổi tên "A.docx" thành '
+                      '"B.docx"',
+            "open": "Chưa rõ bạn muốn mở file nào trong thư mục — hãy nêu rõ tên file.",
+        }
+        self.chat.add_ai(messages.get(kind, "Bạn nói rõ hơn giúp mình nhé."))
+        self.chat.set_enabled(True)
+        self.chat.input_box.setFocus()
+
+    def _refresh_folder_sidebar(self):
+        counts: dict[str, int] = {}
+        for f in self._folder_files:
+            counts[f.ext_type] = counts.get(f.ext_type, 0) + 1
+        folder_name = Path(self._folder_path).name or self._folder_path
+        self.sidebar.show_folder_ready(folder_name, self._folder_files, counts)
+
+    def _do_create_file(self, intent):
+        try:
+            path = create_empty_file(self._folder_path, intent.name, intent.ftype)
+        except FolderOpError as exc:
+            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.set_enabled(True)
+            self.chat.input_box.setFocus()
+            return
+
+        self._folder_files.append(ScannedFile(path, Path(path).name, "", intent.ftype))
+        self._refresh_folder_sidebar()
+
+        badge = FILE_BADGE.get(intent.ftype, "FILE")
+        self.chat.add_system(f"✓ Đã tạo «{Path(path).name}» trong thư mục")
+        self.chat.add_file_card(Path(path).name, badge, note="Vừa tạo", full_path=path)
+        self.chat.set_enabled(True)
+        self.chat.input_box.setFocus()
+
+    def _do_delete_file(self, intent):
+        path = intent.target_path
+        try:
+            trashed = delete_file_with_undo(path)
+        except FolderOpError as exc:
+            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.set_enabled(True)
+            self.chat.input_box.setFocus()
+            return
+
+        name = Path(path).name
+        self._folder_files = [f for f in self._folder_files if f.path != path]
+        for attr in ("_attached_files", "_recent_outputs"):
+            setattr(self, attr, [p for p in getattr(self, attr) if p != path])
+        self._refresh_folder_sidebar()
+
+        self.chat.add_system(f"✓ Đã xóa «{name}» khỏi thư mục")
+        undo_btn = QPushButton("Hoàn tác")
+        undo_btn.setObjectName("undoDeleteBtn")
+        undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        undo_btn.clicked.connect(lambda: self._undo_delete(trashed, path, undo_btn))
+        self.chat.add_widget_row(undo_btn, full_width=False)
+        self.chat.set_enabled(True)
+        self.chat.input_box.setFocus()
+
+    def _undo_delete(self, trashed_path: str, original_path: str, btn: QPushButton):
+        btn.setEnabled(False)
+        try:
+            restore_file(trashed_path, original_path)
+        except FolderOpError as exc:
+            self.chat.add_system(f"⚠ {exc.message}")
+            return
+        ext_type = EXT_MAP.get(Path(original_path).suffix.lower(), "")
+        self._folder_files.append(
+            ScannedFile(original_path, Path(original_path).name, "", ext_type))
+        self._refresh_folder_sidebar()
+        self.chat.add_system(f"✓ Đã khôi phục «{Path(original_path).name}»")
+
+    def _do_rename_file(self, intent):
+        try:
+            new_path = rename_file(intent.target_path, intent.new_name)
+        except FolderOpError as exc:
+            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.set_enabled(True)
+            self.chat.input_box.setFocus()
+            return
+
+        old_path = intent.target_path
+        for f in self._folder_files:
+            if f.path == old_path:
+                f.path = new_path
+                f.name = Path(new_path).name
+                break
+        for attr in ("_attached_files", "_recent_outputs"):
+            setattr(self, attr, [new_path if p == old_path else p for p in getattr(self, attr)])
+        self._refresh_folder_sidebar()
+
+        self.chat.add_system(f"✓ Đã đổi tên thành «{Path(new_path).name}» — nội dung giữ nguyên")
+        self.chat.set_enabled(True)
+        self.chat.input_box.setFocus()
+
+    def _do_open_folder_file(self, intent):
+        path = intent.target_path
+        ftype = EXT_MAP.get(Path(path).suffix.lower())
+        if ftype is None:
+            self.chat.add_system(f"⚠ Định dạng chưa hỗ trợ: {Path(path).suffix}")
+            self.chat.set_enabled(True)
+            self.chat.input_box.setFocus()
+            return
+
+        self._adopt_current_file(path, ftype)
+        self.chat.add_system(f"Đã mở «{Path(path).name}»")
+
+        if intent.remainder:
+            self._start_edit(intent.remainder)
+        else:
+            self.chat.set_enabled(True)
+            self.chat.input_box.setFocus()
+
+    # ══ Xử lý nhiều file (chế độ Thư mục) — so sánh/đối chiếu/gộp/trích xuất/
+    # tìm kiếm/rà soát, xem `modules.common.doc_set.process_document_set()` ═══
+
+    def _start_folder_task(self, text: str):
+        attached = [p for p in self._attached_files if Path(p).is_file()]
+        recent_outputs = [p for p in self._recent_outputs if Path(p).is_file()]
+        folder_files = [f.path for f in self._folder_files if Path(f.path).is_file()]
+
+        resolve = resolve_input_files(text, attached, recent_outputs, folder_files)
+        if resolve.needs_clarification:
+            self.chat.add_ai(resolve.message)
+            if resolve.suggestions:
+                card = SuggestionCard("File trong ngữ cảnh:", resolve.suggestions)
+                card.chip_clicked.connect(lambda name: self.chat.input_box.setText(
+                    (self.chat.input_box.text() + " " + name).strip()))
+                self.chat.add_widget_row(card)
+            self.chat.set_enabled(True)
+            self.chat.input_box.setFocus()
+            return
+
+        business = load_config().get("business", {})
+        self.chat.start_ai()
+        self.chat.stream_ai("Đang xử lý…")
+
+        self._docset_worker = CallWorker(
+            process_document_set, resolve.paths, text, None, list(self._history[:-1]), business)
+        self._docset_worker.ok.connect(self._on_docset_result)
+        self._docset_worker.err.connect(self._on_chat_error)
+        self._docset_worker.start()
+
+    def _on_docset_result(self, result: DocSetResult):
+        if result.quota.get("quota_remaining") is not None:
+            self._quota_remaining = result.quota["quota_remaining"]
+            self._plan = result.quota.get("plan", self._plan)
+            self._update_quota_label()
+
+        self._pending_meta = (None, False)
+        self._pending_docset_outputs = list(result.output_files)
+        for out_path in result.output_files:
+            if out_path not in self._recent_outputs:
+                self._recent_outputs.append(out_path)
+        self._pending_reply = MockReply(text=result.analysis or "(Không có nội dung phân tích)")
+        self._start_stream(self._pending_reply.text)
 
     # ══ Sidebar / recent ═════════════════════════════════════════════════════
 
@@ -403,6 +585,13 @@ class MainWindow(QMainWindow):
         # phải lệnh sửa (VD "ảnh này chụp gì") vẫn trả lời được.
         if self._current_path and self._current_type in ("word", "excel", "ppt", "image"):
             self._start_edit(text)
+            return
+
+        # Đang trong hội thoại chế độ Thư mục (đã bấm "Bắt đầu trò chuyện") và
+        # chưa đính kèm thêm 1 file đơn lẻ nào → định tuyến qua thao tác file
+        # (tạo/xóa/đổi tên/mở 1 file) hoặc function tổng hợp nhiều file.
+        if self._folder_context_name and not self._current_path:
+            self._handle_folder_message(text)
             return
 
         # Không đang sửa file mở sẵn → có thể là yêu cầu TẠO tài liệu mới
@@ -533,6 +722,15 @@ class MainWindow(QMainWindow):
                 self.chat.add_system(f"✓ «{name}» — {note}")
             self.preview.load_file(self._current_path, self._current_type, name)
             return
+
+        # Kết quả từ process_document_set() (gộp / trích xuất & gộp nguồn hỗn
+        # hợp) — file mới nằm ở thư mục staging tạm, chưa lưu thật; thẻ file
+        # bấm vào sẽ mở hộp thoại "Lưu file" thay vì mở trực tiếp (_on_file_card).
+        outputs, self._pending_docset_outputs = self._pending_docset_outputs, []
+        for out_path in outputs:
+            badge = FILE_BADGE.get(EXT_MAP.get(Path(out_path).suffix.lower(), ""), "FILE")
+            self.chat.add_file_card(
+                Path(out_path).name, badge, note="Bấm để xem trước & lưu", full_path=out_path)
 
         if reply is None:
             return
@@ -786,11 +984,36 @@ class MainWindow(QMainWindow):
     def _on_file_card(self, file_name: str):
         path_obj = Path(file_name)
         if path_obj.is_absolute() and path_obj.exists():
+            if self._is_staged_output(path_obj):
+                self._save_and_open_staged(path_obj)
+                return
             self._open_file(str(path_obj))
             return
         QMessageBox.information(
             self, APP_NAME,
             f"«{file_name}»\n\nFile kết quả sẽ được tạo thật khi tích hợp backend AI.")
+
+    def _is_staged_output(self, path_obj: Path) -> bool:
+        """File kết quả từ process_document_set() (gộp / trích xuất & gộp nguồn
+        hỗn hợp) — chưa được lưu thật, còn nằm ở thư mục staging tạm."""
+        try:
+            path_obj.relative_to(_STAGING_DIR)
+            return True
+        except ValueError:
+            return False
+
+    def _save_and_open_staged(self, staged_path: Path):
+        """Lưu file kết quả (gộp / trích xuất & gộp nguồn hỗn hợp) ra vị trí
+        người dùng chọn, rồi tiếp tục làm việc với nó ngay trong cuộc trò
+        chuyện hiện tại — giữ nguyên lịch sử chat, không xóa gì cả (giống
+        `_on_save_generated`, khớp thiết kế 3.2b "mở như 1 file bình thường")."""
+        saved_path = save_staged_file(self, str(staged_path), staged_path.name)
+        if not saved_path:
+            return
+        self._folder_context_name = None
+        self._adopt_current_file(saved_path, EXT_MAP.get(Path(saved_path).suffix.lower(), ""))
+        self.chat.add_system(
+            f"✓ Đã lưu «{Path(saved_path).name}» — bạn có thể tiếp tục ra lệnh trên file này")
 
     # ══ Dọn dẹp ══════════════════════════════════════════════════════════════
 

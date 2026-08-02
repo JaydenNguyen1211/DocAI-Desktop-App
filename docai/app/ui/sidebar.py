@@ -132,7 +132,6 @@ class Sidebar(QFrame):
 
     open_folder = Signal()             # bấm "Mở thư mục làm việc" (trống)
     change_folder = Signal()           # bấm "Đổi" (đang quét / sẵn sàng)
-    folder_selection_changed = Signal(list)   # list[str] file đã tick
     folder_file_removed = Signal(str)         # bấm xóa 1 file trong cây thư mục
 
     def __init__(self, parent=None):
@@ -282,7 +281,7 @@ class Sidebar(QFrame):
         lay.addWidget(icon, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         hint = QLabel(
-            "Chưa mở thư mục nào.\nMở một thư mục để tick nhiều file làm ngữ cảnh.")
+            "Chưa mở thư mục nào.\nMở một thư mục rồi nói chuyện với AI về các file trong đó.")
         hint.setObjectName("folderEmptyHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setWordWrap(True)
@@ -327,7 +326,6 @@ class Sidebar(QFrame):
         lay.addWidget(self._ready_badge)
 
         self._folder_tree = FolderTree()
-        self._folder_tree.selection_changed.connect(self._on_folder_tree_selection)
         self._folder_tree.file_removed.connect(self.folder_file_removed.emit)
         lay.addWidget(self._folder_tree, stretch=1)
 
@@ -335,15 +333,10 @@ class Sidebar(QFrame):
         footer.setObjectName("folderFooter")
         footer_lay = QHBoxLayout(footer)
         footer_lay.setContentsMargins(10, 8, 10, 8)
-        self._folder_footer_lbl = QLabel("Chưa chọn file")
+        self._folder_footer_lbl = QLabel("")
         self._folder_footer_lbl.setObjectName("folderFooterLabel")
         footer_lay.addWidget(self._folder_footer_lbl)
         footer_lay.addStretch()
-        select_all_lbl = QPushButton("Chọn tất cả")
-        select_all_lbl.setObjectName("folderFooterAction")
-        select_all_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
-        select_all_lbl.clicked.connect(lambda: self._folder_tree.select_all())
-        footer_lay.addWidget(select_all_lbl)
         lay.addWidget(footer)
         return page
 
@@ -391,20 +384,7 @@ class Sidebar(QFrame):
             QFontMetrics(self._ready_path_lbl.font()).elidedText(
                 folder_name, Qt.TextElideMode.ElideMiddle, 110))
         self._folder_tree.set_files(files, counts)
-        self._update_folder_footer([])
-
-    def select_all_folder_files(self):
-        self._folder_tree.select_all()
-
-    def _on_folder_tree_selection(self, paths: list[str]):
-        self._update_folder_footer(paths)
-        self.folder_selection_changed.emit(paths)
-
-    def _update_folder_footer(self, paths: list[str]):
-        if paths:
-            self._folder_footer_lbl.setText(f"{len(paths)} file đã chọn")
-        else:
-            self._folder_footer_lbl.setText("Chưa chọn file")
+        self._folder_footer_lbl.setText(f"{len(files)} file")
 
     # ── Danh sách gần đây ───────────────────────────────────────────────────────
 
