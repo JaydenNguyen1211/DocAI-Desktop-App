@@ -2,6 +2,10 @@
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QWidget
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _DURATION_MS = 4000
 _MARGIN = 16
 
@@ -14,6 +18,7 @@ class CacheToast(QLabel):
     trên bản Qt đang dùng (xem styles.py).
     """
 
+    @log_call
     def __init__(self, parent: QWidget):
         super().__init__(parent)
         self.setObjectName("cacheToast")
@@ -22,6 +27,7 @@ class CacheToast(QLabel):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.hide)
 
+    @log_call
     def show_usage(self, usage: dict | None):
         if not usage:
             return
@@ -49,6 +55,7 @@ class CacheToast(QLabel):
         self.raise_()
         self._timer.start(_DURATION_MS)
 
+    @log_call
     def reposition(self):
         parent = self.parentWidget()
         if not parent:

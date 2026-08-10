@@ -2,19 +2,26 @@ import csv
 import io
 import re
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 try:
     from docx import Document as DocxDocument
     from docx.shared import Pt
 except ImportError:
+    logger.warning("python-docx not installed — save_word() will fail if called.")
     DocxDocument = None  # type: ignore
     Pt = None            # type: ignore
 
 try:
     import openpyxl
 except ImportError:
+    logger.warning("openpyxl not installed — save_excel() will fail if called.")
     openpyxl = None  # type: ignore
 
 
+@log_call
 def save_word(original_path: str, edited_text: str, save_path: str):
     doc = DocxDocument()
     try:
@@ -22,12 +29,14 @@ def save_word(original_path: str, edited_text: str, save_path: str):
         doc.styles["Normal"].font.name = orig.styles["Normal"].font.name or "Calibri"
         doc.styles["Normal"].font.size = orig.styles["Normal"].font.size or Pt(11)
     except Exception:
-        pass
+        logger.debug("Could not copy base style from original doc %s — using default.",
+                     original_path, exc_info=True)
     for line in edited_text.split("\n"):
         doc.add_paragraph(line)
     doc.save(save_path)
 
 
+@log_call
 def save_excel(edited_text: str, save_path: str):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)

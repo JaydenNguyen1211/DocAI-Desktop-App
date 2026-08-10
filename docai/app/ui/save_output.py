@@ -12,6 +12,10 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QWidget
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _FILTER_BY_EXT = {
     ".docx": "Word (*.docx)",
     ".xlsx": "Excel (*.xlsx)",
@@ -20,6 +24,7 @@ _FILTER_BY_EXT = {
 }
 
 
+@log_call
 def save_staged_file(parent: QWidget, staged_path: str, suggested_name: str = "") -> str | None:
     """Mở hộp thoại chọn nơi lưu, copy file staging sang đó. Trả về đường dẫn
     đã lưu, hoặc None nếu người dùng hủy / có lỗi ghi file."""
@@ -34,5 +39,6 @@ def save_staged_file(parent: QWidget, staged_path: str, suggested_name: str = ""
     try:
         shutil.copyfile(staged_path, out_path)
     except OSError:
+        logger.exception("Failed to copy staged file %s -> %s", staged_path, out_path)
         return None
     return out_path

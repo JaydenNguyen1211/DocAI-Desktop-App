@@ -15,11 +15,16 @@ import os
 
 from .config import load_config
 
+from ..logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 # ── Giá trị mặc định — ĐIỀN SAU KHI DEPLOY ─────────────────────────────────
 FIREBASE_API_KEY = "AIzaSyDCGFsPcTfue9c04IvPZWvRtb582snbrfk"
 API_BASE_URL = "https://asia-southeast1-docai-15ceb.cloudfunctions.net/api"
 
 
+@log_call
 def _resolve(env_key: str, cfg_key: str, default: str) -> str:
     val = os.environ.get(env_key)
     if val:
@@ -30,14 +35,17 @@ def _resolve(env_key: str, cfg_key: str, default: str) -> str:
     return default
 
 
+@log_call
 def firebase_api_key() -> str:
     return _resolve("DOCAI_FIREBASE_API_KEY", "firebase_api_key", FIREBASE_API_KEY)
 
 
+@log_call
 def api_base_url() -> str:
     return _resolve("DOCAI_API_BASE_URL", "api_base_url", API_BASE_URL).rstrip("/")
 
 
+@log_call
 def is_configured() -> bool:
     return (
         firebase_api_key() != "REPLACE_WITH_FIREBASE_WEB_API_KEY"

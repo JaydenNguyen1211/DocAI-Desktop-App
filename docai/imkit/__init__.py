@@ -5,11 +5,16 @@ import threading
 
 from PySide6.QtGui import QPixmap, QImage
 
+from ..logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 try:
     import fitz as _fitz                # noqa: F401
     from PIL import Image as _PILImg    # noqa: F401
     HAS_PAGEPREVIEW = True
 except ImportError:
+    logger.debug("pymupdf/Pillow not installed — page preview unavailable.")
     HAS_PAGEPREVIEW = False
 
 
@@ -24,6 +29,7 @@ class LazyPdfSource:
     thực sự cuộn tới thay vì raster hết cả cuốn sách.
     """
 
+    @log_call
     def __init__(self, pdf_path: str, tmp_dir: str, dpi: int = 150,
                  owned_files: list[str] | None = None):
         import fitz
@@ -36,12 +42,14 @@ class LazyPdfSource:
         self._owned_files = owned_files or []
         self._closed = False
 
+    @log_call
     def page_size(self, index: int) -> tuple[int, int]:
         zoom = self._dpi / 72.0
         with self._lock:
             rect = self._doc[index].rect
         return max(1, int(rect.width * zoom)), max(1, int(rect.height * zoom))
 
+    @log_call
     def png_path(self, index: int) -> str:
         cached = self._cache.get(index)
         if cached:
@@ -60,6 +68,7 @@ class LazyPdfSource:
             self._cache[index] = out
         return out
 
+    @log_call
     def close(self):
         import shutil
         if self._closed:
@@ -71,7 +80,8 @@ class LazyPdfSource:
             try:
                 os.unlink(owned_file)
             except Exception:
-                pass
+                logger.debug("Could not delete temp owned file: %s", owned_file,
+                            exc_info=True)
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
 
@@ -79,20 +89,24 @@ class EagerPageSource:
     """Nguồn trang đã raster sẵn hết — dùng cho Excel/ảnh, vốn rất ít trang
     (số sheet, hoặc 1) nên không cần tải lười."""
 
+    @log_call
     def __init__(self, png_paths: list[str], tmp_dir: str):
         self._paths = png_paths
         self.page_count = len(png_paths)
         self._tmp_dir = tmp_dir
         self._closed = False
 
+    @log_call
     def page_size(self, index: int) -> tuple[int, int]:
         from PIL import Image
         with Image.open(self._paths[index]) as img:
             return img.size
 
+    @log_call
     def png_path(self, index: int) -> str:
         return self._paths[index]
 
+    @log_call
     def close(self):
         import shutil
         if self._closed:
@@ -101,6 +115,7 @@ class EagerPageSource:
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
 
+@log_call
 def pil_to_qimage(pil_img) -> QImage:
     """An toàn gọi từ luồng nền (khác QPixmap, QImage không cần luồng GUI).
     `.copy()` để QImage sở hữu buffer riêng, tách khỏi bytes Python cục bộ
@@ -112,5 +127,6 @@ def pil_to_qimage(pil_img) -> QImage:
     return qimg.copy()
 
 
+@log_call
 def pil_to_qpixmap(pil_img) -> QPixmap:
     return QPixmap.fromImage(pil_to_qimage(pil_img))

@@ -15,6 +15,10 @@ from dataclasses import dataclass
 
 from ...account import api_client
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _TRASH_DIRNAME = ".docai_trash"
 
 _EXT_TO_TYPE = {
@@ -31,6 +35,7 @@ _TYPE_WORDS = {
 
 
 class FolderOpError(api_client.ApiError):
+    @log_call
     def __init__(self, message: str):
         super().__init__(message, "folder_op_failed")
 
@@ -38,6 +43,7 @@ class FolderOpError(api_client.ApiError):
 _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
+@log_call
 def _norm(text: str) -> str:
     """Tách camelCase (VD "HopDong" → "Hop Dong") trước khi chuẩn hóa — tên
     file thường ghép kiểu này, không có dấu cách giữa các từ."""
@@ -47,6 +53,7 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", " ", text.lower()).strip()
 
 
+@log_call
 def _name_mentioned(text_words: set[str], path: str, threshold: float = 0.75) -> bool:
     """Word-overlap, ngưỡng cao hơn `doc_set.py` vì dùng để suy ra file cho
     thao tác xóa/đổi tên/mở — cần chắc chắn hơn mức "đưa vào phân tích"."""
@@ -59,10 +66,12 @@ def _name_mentioned(text_words: set[str], path: str, threshold: float = 0.75) ->
 _QUOTED_RE = re.compile(r'["\'“”](.+?)["\'“”]')
 
 
+@log_call
 def _quoted_names(text: str) -> list[str]:
     return [m.group(1).strip() for m in _QUOTED_RE.finditer(text or "")]
 
 
+@log_call
 def _resolve_by_name(target_name: str | None, text: str, folder_files: list[str]) -> str | None:
     """Ưu tiên khớp đúng tên đã trích trong ngoặc kép; nếu không có/không khớp,
     thử nhận diện tên file được nhắc trong câu (chỉ nhận nếu khớp DUY NHẤT)."""
@@ -96,6 +105,7 @@ class FileMgmtIntent:
     ambiguous: bool = False         # thiếu thông tin — cần hỏi lại thay vì đoán
 
 
+@log_call
 def _parse_create(text: str) -> FileMgmtIntent:
     names = _quoted_names(text)
     name = names[0] if names else None
@@ -115,6 +125,7 @@ def _parse_create(text: str) -> FileMgmtIntent:
                           ambiguous=not (name and ftype))
 
 
+@log_call
 def _parse_delete(text: str, folder_files: list[str]) -> FileMgmtIntent:
     names = _quoted_names(text)
     target = names[0] if names else None
@@ -122,6 +133,7 @@ def _parse_delete(text: str, folder_files: list[str]) -> FileMgmtIntent:
     return FileMgmtIntent(kind="delete", target_path=path, ambiguous=path is None)
 
 
+@log_call
 def _parse_rename(text: str, folder_files: list[str]) -> FileMgmtIntent:
     names = _quoted_names(text)
     if len(names) >= 2:
@@ -134,6 +146,7 @@ def _parse_rename(text: str, folder_files: list[str]) -> FileMgmtIntent:
                           ambiguous=not (path and new_name))
 
 
+@log_call
 def _parse_open(text: str, folder_files: list[str]) -> FileMgmtIntent | None:
     names = _quoted_names(text)
     target = names[0] if names else None
@@ -152,6 +165,7 @@ def _parse_open(text: str, folder_files: list[str]) -> FileMgmtIntent | None:
     return FileMgmtIntent(kind="open", target_path=path, remainder=remainder)
 
 
+@log_call
 def detect_file_mgmt_intent(text: str, folder_files: list[str]) -> FileMgmtIntent | None:
     """None nếu câu chat không khớp lệnh tạo/xóa/đổi tên/mở nào — caller nên
     rơi xuống xử lý khác (`doc_set.process_document_set`)."""
@@ -168,6 +182,7 @@ def detect_file_mgmt_intent(text: str, folder_files: list[str]) -> FileMgmtInten
 
 # ── Thực thi (I/O thật) ──────────────────────────────────────────────────────
 
+@log_call
 def create_empty_file(folder: str, name: str, ftype: str) -> str:
     path = os.path.join(folder, name)
     if os.path.exists(path):
@@ -191,6 +206,7 @@ def create_empty_file(folder: str, name: str, ftype: str) -> str:
     return path
 
 
+@log_call
 def delete_file_with_undo(path: str) -> str:
     """Chuyển vào `.docai_trash` cùng cấp thư mục thay vì xóa hẳn — trả về
     đường dẫn tạm để `restore_file()` khôi phục lại đúng vị trí cũ."""
@@ -208,6 +224,7 @@ def delete_file_with_undo(path: str) -> str:
     return dest
 
 
+@log_call
 def restore_file(trashed_path: str, original_path: str) -> None:
     if os.path.exists(original_path):
         raise FolderOpError("Không khôi phục được — đã có file khác cùng tên tại vị trí cũ.")
@@ -217,6 +234,7 @@ def restore_file(trashed_path: str, original_path: str) -> None:
         raise FolderOpError(f"Không khôi phục được: {exc}") from exc
 
 
+@log_call
 def rename_file(path: str, new_name: str) -> str:
     directory = os.path.dirname(path)
     old_ext = os.path.splitext(path)[1]

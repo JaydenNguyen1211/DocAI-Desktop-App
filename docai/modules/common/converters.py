@@ -23,6 +23,10 @@ from ..word.render import word_to_pdf
 from .creators import create_excel_from_text
 from .extractors import pdf_page_texts
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _IMG_FORMAT_BY_EXT = {
     ".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG",
     ".webp": "WEBP", ".bmp": "BMP",
@@ -32,12 +36,14 @@ _IMG_FORMAT_BY_EXT = {
 class ConvertError(api_client.ApiError):
     """Không chuyển đổi được — thông báo tiếng Việt cho người dùng."""
 
+    @log_call
     def __init__(self, message: str):
         super().__init__(message, "convert_failed")
 
 
 # ── Word/Excel/PPT → PDF (COM) ──────────────────────────────────────────────
 
+@log_call
 def word_to_pdf_file(path: str, out_path: str) -> str:
     try:
         return word_to_pdf(path, out_path)
@@ -45,6 +51,7 @@ def word_to_pdf_file(path: str, out_path: str) -> str:
         raise ConvertError(f"Không chuyển được Word sang PDF: {exc}")
 
 
+@log_call
 def ppt_to_pdf_file(path: str, out_path: str) -> str:
     try:
         return ppt_to_pdf(path, out_path)
@@ -52,6 +59,7 @@ def ppt_to_pdf_file(path: str, out_path: str) -> str:
         raise ConvertError(f"Không chuyển được PowerPoint sang PDF: {exc}")
 
 
+@log_call
 def excel_to_pdf_file(path: str, out_path: str) -> str:
     try:
         return export_workbook_pdf(path, out_path)
@@ -61,6 +69,7 @@ def excel_to_pdf_file(path: str, out_path: str) -> str:
 
 # ── PDF → Word/Excel/Ảnh ─────────────────────────────────────────────────────
 
+@log_call
 def pdf_to_word_file(path: str, out_path: str) -> str:
     """Tái tạo nội dung cơ bản: đọc đúng thứ tự chữ, KHÔNG giữ bố cục/style
     gốc. Chỉ hoạt động với PDF có lớp chữ — PDF quét ảnh thuần túy nên chuyển
@@ -88,6 +97,7 @@ def pdf_to_word_file(path: str, out_path: str) -> str:
     return out_path
 
 
+@log_call
 def pdf_to_excel_file(path: str, out_path: str) -> str:
     """Nhờ Claude đọc trực tiếp PDF (kể cả bản quét ảnh) rồi trích xuất bảng —
     cần mạng + quota. Dùng lại đúng quy ước "--- Sheet: X ---" + CSV mà
@@ -105,6 +115,7 @@ def pdf_to_excel_file(path: str, out_path: str) -> str:
     return out_path
 
 
+@log_call
 def pdf_to_images(path: str, out_dir: str) -> list[str]:
     import fitz
     Path(out_dir).mkdir(parents=True, exist_ok=True)
@@ -125,6 +136,7 @@ def pdf_to_images(path: str, out_dir: str) -> list[str]:
 
 # ── Ảnh → PDF / đổi định dạng ────────────────────────────────────────────────
 
+@log_call
 def image_to_pdf_file(paths: list[str], out_path: str) -> str:
     if not paths:
         raise ConvertError("Không có ảnh nào để chuyển đổi.")
@@ -141,6 +153,7 @@ def image_to_pdf_file(paths: list[str], out_path: str) -> str:
     return out_path
 
 
+@log_call
 def image_to_word_file(paths: list[str], out_path: str) -> str:
     """OCR từng ảnh qua Claude Vision (`/extract_text`) rồi dựng thành 1 file
     Word chỉnh sửa được — mỗi ảnh 1 trang riêng (ngắt trang giữa các ảnh), giữ
@@ -171,6 +184,7 @@ def image_to_word_file(paths: list[str], out_path: str) -> str:
     return out_path
 
 
+@log_call
 def image_to_searchable_pdf_file(paths: list[str], out_path: str) -> str:
     """Xuất PDF từ ảnh chụp kèm lớp văn bản OCR ẩn (`render_mode=3` — không vẽ
     ra nhưng vẫn chọn/tìm/copy được) — khác `image_to_pdf_file()` chỉ nhúng
@@ -202,6 +216,7 @@ def image_to_searchable_pdf_file(paths: list[str], out_path: str) -> str:
     return out_path
 
 
+@log_call
 def image_to_excel_file(path: str, out_path: str) -> str:
     """Nhờ Claude đọc ảnh (hóa đơn/hợp đồng chụp) qua Vision rồi trích xuất
     bảng — cần mạng + quota. Cùng /extract_table và cùng quy ước "--- Sheet:
@@ -216,6 +231,7 @@ def image_to_excel_file(path: str, out_path: str) -> str:
     return out_path
 
 
+@log_call
 def image_convert_format(path: str, out_path: str) -> str:
     target_fmt = _IMG_FORMAT_BY_EXT.get(Path(out_path).suffix.lower())
     if target_fmt is None:
@@ -232,6 +248,7 @@ def image_convert_format(path: str, out_path: str) -> str:
 
 # ── Điểm vào chung cho ConvertDialog ─────────────────────────────────────────
 
+@log_call
 def convert_file(path: str, source_type: str, target_ext: str, out_path: str,
                   extra_paths: list[str] | None = None, searchable: bool = False) -> str:
     """`source_type`: "word"|"excel"|"ppt"|"pdf"|"image". Trả về đường dẫn kết

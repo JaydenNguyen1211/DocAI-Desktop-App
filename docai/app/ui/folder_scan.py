@@ -7,12 +7,17 @@ from PySide6.QtCore import QThread, Signal
 
 from ..constants import FOLDER_EXT_MAP
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class ScannedFile:
     """Một file hỗ trợ tìm thấy trong thư mục làm việc."""
 
     __slots__ = ("path", "name", "group", "ext_type")
 
+    @log_call
     def __init__(self, path: str, name: str, group: str, ext_type: str):
         self.path = path        # đường dẫn tuyệt đối
         self.name = name        # tên file
@@ -28,10 +33,12 @@ class FolderScanWorker(QThread):
     # (danh sách ScannedFile hỗ trợ, đếm theo loại)
     done = Signal(list, dict)
 
+    @log_call
     def __init__(self, root: str, parent=None):
         super().__init__(parent)
         self._root = root
 
+    @log_call
     def run(self):
         root = Path(self._root)
         try:
@@ -43,6 +50,7 @@ class FolderScanWorker(QThread):
                 dirnames[:] = [d for d in dirnames if d != ".docai_trash"]
                 all_paths.extend(Path(dirpath) / fn for fn in filenames)
         except OSError:
+            logger.exception("Failed to walk folder tree at %s — reporting 0 files.", root)
             all_paths = []
 
         total = len(all_paths)

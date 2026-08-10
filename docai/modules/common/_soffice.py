@@ -4,11 +4,16 @@ import shutil
 import subprocess
 import tempfile
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class SofficeError(Exception):
     pass
 
 
+@log_call
 def _find_soffice() -> str:
     candidates = [
         "/Applications/LibreOffice.app/Contents/MacOS/soffice",
@@ -24,6 +29,7 @@ def _find_soffice() -> str:
     )
 
 
+@log_call
 def convert_to_pdf(input_path: str, out_path: str) -> str:
     """Chuyển đổi file sang PDF rồi di chuyển kết quả tới `out_path`."""
     soffice = _find_soffice()

@@ -24,6 +24,9 @@ from ...modules.common.extractors import extract_pdf
 from ...modules.common.doc_set import process_document_set, resolve_input_files, DocSetResult
 from ...modules.common.folder_ops import detect_file_mgmt_intent, create_empty_file, \
     delete_file_with_undo, restore_file, rename_file, FolderOpError
+from ...modules.business.payroll import (
+    detect_payroll_intent, compute_payroll_file, PayrollRunResult,
+)
 from ...pipeline.editing import check_editable, EditError
 from .. import controller
 from ..constants import (
@@ -42,11 +45,16 @@ from .toast import CacheToast
 from .folder_scan import FolderScanWorker, ScannedFile
 from .save_output import save_staged_file
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _STAGING_DIR = str(Path(tempfile.gettempdir()) / "DocAI" / "staging")
 
 _MAX_RECENT = 10
 
 
+@log_call
 def _open_path(path: str) -> None:
     if sys.platform == "win32":
         os.startfile(path)  # noqa: S606
@@ -57,6 +65,7 @@ def _open_path(path: str) -> None:
 
 
 class MainWindow(QMainWindow):
+    @log_call
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -99,6 +108,7 @@ class MainWindow(QMainWindow):
 
     # ══ UI ═════════════════════════════════════════════════════════════════
 
+    @log_call
     def _build_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -162,6 +172,7 @@ class MainWindow(QMainWindow):
         body.addWidget(self.stack, stretch=1)
         root.addLayout(body, stretch=1)
 
+    @log_call
     def _make_topbar(self) -> QFrame:
         bar = QFrame()
         bar.setObjectName("topbar")
@@ -194,12 +205,14 @@ class MainWindow(QMainWindow):
 
     # ══ Kéo-thả file vào cửa sổ ══════════════════════════════════════════════
 
+    @log_call
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             path = event.mimeData().urls()[0].toLocalFile()
             if Path(path).suffix.lower() in EXT_MAP:
                 event.acceptProposedAction()
 
+    @log_call
     def dropEvent(self, event):
         for url in event.mimeData().urls():
             path = url.toLocalFile()
@@ -209,6 +222,7 @@ class MainWindow(QMainWindow):
 
     # ══ Mở file / luồng bắt đầu ══════════════════════════════════════════════
 
+    @log_call
     def _pick_file(self):
         """Đính kèm file từ ô chat workspace — gắn vào cuộc trò chuyện đang có.
 
@@ -226,6 +240,7 @@ class MainWindow(QMainWindow):
             return
         self._open_file(path, fresh=False)
 
+    @log_call
     def _open_file(self, path: str, fresh: bool = True):
         path_obj = Path(path)
         if not path_obj.exists():
@@ -249,6 +264,7 @@ class MainWindow(QMainWindow):
         self.chat.add_system(f"{verb} «{path_obj.name}»")
         self.chat.input_box.setFocus()
 
+    @log_call
     def _adopt_current_file(self, path: str, ftype: str):
         """Phần chung khi 1 file thật trở thành ngữ cảnh hiện tại: set state,
         đẩy vào "Gần đây", nạp preview, đặt chip theo loại file. Dùng cho cả
@@ -265,6 +281,7 @@ class MainWindow(QMainWindow):
         self.chat.set_chips(CONTEXT_CHIPS.get(ftype, CONTEXT_CHIPS[None]))
         self.stack.setCurrentIndex(1)
 
+    @log_call
     def _start_chat(self, text: str):
         """Gõ lệnh / chip ở chat trung tâm → vào workspace, chưa cần file."""
         self._current_path = None
@@ -275,6 +292,7 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(1)
         self.chat.send_text(text)
 
+    @log_call
     def _new_chat(self):
         """Trò chuyện mới → về chat AI trung tâm, xóa hội thoại & ngữ cảnh file."""
         self._current_path = None
@@ -294,6 +312,7 @@ class MainWindow(QMainWindow):
     # đầu chat"; sidebar (cây thư mục) chỉ là nguồn tham chiếu tên file cho
     # `doc_set.resolve_input_files()`. Quét xong là chat nhận lệnh được ngay.
 
+    @log_call
     def _open_folder(self):
         path = QFileDialog.getExistingDirectory(self, "Chọn thư mục làm việc", "")
         if not path:
@@ -309,20 +328,24 @@ class MainWindow(QMainWindow):
         self._folder_scan_worker.done.connect(self._on_folder_scan_done)
         self._folder_scan_worker.start()
 
+    @log_call
     def _on_folder_scan_progress(self, done: int, total: int):
         self.sidebar.update_folder_scan_progress(done, total)
 
+    @log_call
     def _on_folder_scan_done(self, files: list, counts: dict):
         self._folder_files = files
         folder_name = Path(self._folder_path).name or self._folder_path
         self.sidebar.show_folder_ready(folder_name, files, counts)
         self._start_folder_chat(folder_name, len(files))
 
+    @log_call
     def _on_folder_file_removed(self, path: str):
         """Bấm xóa 1 file trong cây thư mục — chỉ gỡ khỏi danh sách tham chiếu,
         không đụng file thật."""
         self._folder_files = [f for f in self._folder_files if f.path != path]
 
+    @log_call
     def _start_folder_chat(self, folder_name: str, file_count: int):
         self._current_path = None
         self._current_type = None
@@ -342,6 +365,7 @@ class MainWindow(QMainWindow):
     # Theo thiết kế D:\Tools\DocAI\Plan\V4\Folder\screens_folder — nhận diện
     # cục bộ trước, không khớp mới rơi xuống process_document_set().
 
+    @log_call
     def _handle_folder_message(self, text: str):
         folder_paths = [f.path for f in self._folder_files]
         intent = detect_file_mgmt_intent(text, folder_paths)
@@ -362,6 +386,7 @@ class MainWindow(QMainWindow):
         elif intent.kind == "open":
             self._do_open_folder_file(intent)
 
+    @log_call
     def _ask_folder_mgmt_clarify(self, kind: str):
         messages = {
             "create": "Bạn muốn tạo file loại gì (Word/Excel/PowerPoint) và tên là gì? "
@@ -376,6 +401,7 @@ class MainWindow(QMainWindow):
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
+    @log_call
     def _refresh_folder_sidebar(self):
         counts: dict[str, int] = {}
         for f in self._folder_files:
@@ -383,10 +409,12 @@ class MainWindow(QMainWindow):
         folder_name = Path(self._folder_path).name or self._folder_path
         self.sidebar.show_folder_ready(folder_name, self._folder_files, counts)
 
+    @log_call
     def _do_create_file(self, intent):
         try:
             path = create_empty_file(self._folder_path, intent.name, intent.ftype)
         except FolderOpError as exc:
+            logger.info("Create-file intent failed for %r: %s", intent.name, exc.message)
             self.chat.add_system(f"⚠ {exc.message}")
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
@@ -401,11 +429,13 @@ class MainWindow(QMainWindow):
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
+    @log_call
     def _do_delete_file(self, intent):
         path = intent.target_path
         try:
             trashed = delete_file_with_undo(path)
         except FolderOpError as exc:
+            logger.info("Delete-file intent failed for %r: %s", path, exc.message)
             self.chat.add_system(f"⚠ {exc.message}")
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
@@ -426,11 +456,13 @@ class MainWindow(QMainWindow):
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
+    @log_call
     def _undo_delete(self, trashed_path: str, original_path: str, btn: QPushButton):
         btn.setEnabled(False)
         try:
             restore_file(trashed_path, original_path)
         except FolderOpError as exc:
+            logger.info("Undo-delete failed for %r: %s", original_path, exc.message)
             self.chat.add_system(f"⚠ {exc.message}")
             return
         ext_type = EXT_MAP.get(Path(original_path).suffix.lower(), "")
@@ -439,10 +471,12 @@ class MainWindow(QMainWindow):
         self._refresh_folder_sidebar()
         self.chat.add_system(f"✓ Đã khôi phục «{Path(original_path).name}»")
 
+    @log_call
     def _do_rename_file(self, intent):
         try:
             new_path = rename_file(intent.target_path, intent.new_name)
         except FolderOpError as exc:
+            logger.info("Rename-file intent failed for %r: %s", intent.target_path, exc.message)
             self.chat.add_system(f"⚠ {exc.message}")
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
@@ -462,6 +496,7 @@ class MainWindow(QMainWindow):
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
+    @log_call
     def _do_open_folder_file(self, intent):
         path = intent.target_path
         ftype = EXT_MAP.get(Path(path).suffix.lower())
@@ -483,6 +518,7 @@ class MainWindow(QMainWindow):
     # ══ Xử lý nhiều file (chế độ Thư mục) — so sánh/đối chiếu/gộp/trích xuất/
     # tìm kiếm/rà soát, xem `modules.common.doc_set.process_document_set()` ═══
 
+    @log_call
     def _start_folder_task(self, text: str):
         attached = [p for p in self._attached_files if Path(p).is_file()]
         recent_outputs = [p for p in self._recent_outputs if Path(p).is_file()]
@@ -510,6 +546,7 @@ class MainWindow(QMainWindow):
         self._docset_worker.err.connect(self._on_chat_error)
         self._docset_worker.start()
 
+    @log_call
     def _on_docset_result(self, result: DocSetResult):
         if result.quota.get("quota_remaining") is not None:
             self._quota_remaining = result.quota["quota_remaining"]
@@ -526,6 +563,7 @@ class MainWindow(QMainWindow):
 
     # ══ Sidebar / recent ═════════════════════════════════════════════════════
 
+    @log_call
     def _push_recent(self, path: str):
         cfg = load_config()
         recent = cfg.get("recent_files", [])
@@ -534,22 +572,26 @@ class MainWindow(QMainWindow):
         cfg["recent_files"] = recent[:_MAX_RECENT]
         save_config(cfg)
 
+    @log_call
     def _remove_recent(self, path: str):
         cfg = load_config()
         cfg["recent_files"] = [recent_path for recent_path in cfg.get("recent_files", []) if recent_path != path]
         save_config(cfg)
         self._refresh_sidebar()
 
+    @log_call
     def _on_recent_deleted(self, path: str):
         """Bấm xóa 1 item trong tab "Tệp" — chỉ gỡ khỏi lịch sử, không xóa file thật."""
         self._remove_recent(path)
 
+    @log_call
     def _refresh_sidebar(self):
         recent = load_config().get("recent_files", [])
         self.sidebar.refresh(recent, self._current_path)
 
     # ══ Quota (nguồn: server) ════════════════════════════════════════════════
 
+    @log_call
     def _update_quota_label(self):
         plan = "Pro" if self._plan == "pro" else "Free"
         if self._quota_remaining is None or self._quota_limit is None:
@@ -559,6 +601,7 @@ class MainWindow(QMainWindow):
                 f"Gói {plan} · {self._quota_remaining}/{self._quota_limit} lượt")
         self.sidebar.set_plan(plan, self._quota_remaining, self._quota_limit)
 
+    @log_call
     def _refresh_account(self):
         """Lấy gói + quota từ server (nền)."""
         self._me_worker = CallWorker(api_client.me)
@@ -566,6 +609,7 @@ class MainWindow(QMainWindow):
         self._me_worker.err.connect(lambda _msg: None)  # im lặng nếu lỗi mạng
         self._me_worker.start()
 
+    @log_call
     def _on_account(self, data: dict):
         self._plan = data.get("plan", "free")
         self._quota_remaining = data.get("quota_remaining")
@@ -574,6 +618,7 @@ class MainWindow(QMainWindow):
 
     # ══ Chat AI (gọi server, streaming khi có kết quả) ═══════════════════════
 
+    @log_call
     def _on_message(self, text: str):
         self.chat.add_user(text)
         self.chat.set_enabled(False)
@@ -628,6 +673,7 @@ class MainWindow(QMainWindow):
         self._chat_worker.err.connect(self._on_chat_error)
         self._chat_worker.start()
 
+    @log_call
     def _on_chat_result(self, data: dict):
         # Cập nhật quota từ server.
         if data.get("quota_remaining") is not None:
@@ -643,6 +689,7 @@ class MainWindow(QMainWindow):
         )
         self._start_stream(self._pending_reply.text)
 
+    @log_call
     def _start_stream(self, full_text: str):
         """Hiển thị dần văn bản server trả về."""
         self._stream_pos = 0
@@ -651,6 +698,7 @@ class MainWindow(QMainWindow):
         self._stream_timer.timeout.connect(lambda: self._stream_tick(full_text))
         self._stream_timer.start()
 
+    @log_call
     def _on_chat_error(self, message: str):
         self.chat.stream_ai("")
         self.chat.end_ai()
@@ -659,6 +707,7 @@ class MainWindow(QMainWindow):
         self.chat.input_box.setFocus()
         self._pending_reply = None
 
+    @log_call
     def _stream_tick(self, full_text: str):
         self._stream_pos = min(len(full_text), self._stream_pos + 6)
         self.chat.stream_ai(full_text[:self._stream_pos])
@@ -668,15 +717,28 @@ class MainWindow(QMainWindow):
 
     # ══ Sửa file thật (Word / Excel) ═════════════════════════════════════════
 
+    @log_call
     def _remember(self, role: str, content: str):
         self._history.append({"role": role, "content": content})
         del self._history[:-12]
 
+    @log_call
     def _start_edit(self, text: str):
         path, ftype = self._current_path, self._current_type
+
+        # "Tính lương + BHXH" trên 1 file Excel đang mở (bảng chấm công) →
+        # tính TẤT ĐỊNH cục bộ (modules.business.payroll), không cho Claude
+        # tự do sửa ô/công thức lương qua /edit — đúng nguyên tắc "DocAI hỗ
+        # trợ, không tự kết luận số liệu" với nhóm nghiệp vụ rủi ro cao.
+        # File chấm công gốc KHÔNG bị đụng tới — output là 1 file mới.
+        if ftype == "excel" and detect_payroll_intent(text):
+            self._start_payroll(path)
+            return
+
         try:
             check_editable(path, ftype)
         except EditError as exc:
+            logger.info("Edit request rejected for %r: %s", path, exc)
             self.chat.add_system(f"⚠ {exc}")
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
@@ -691,6 +753,7 @@ class MainWindow(QMainWindow):
         self._edit_worker.err.connect(self._on_chat_error)
         self._edit_worker.start()
 
+    @log_call
     def _on_edit_result(self, data: dict):
         if data.get("quota_remaining") is not None:
             self._quota_remaining = data["quota_remaining"]
@@ -704,6 +767,42 @@ class MainWindow(QMainWindow):
             text=data.get("reply", "") or "Đã cập nhật file.")
         self._start_stream(self._pending_reply.text)
 
+    @log_call
+    def _start_payroll(self, path: str):
+        """Tính lương + BHXH/BHYT/BHTN + TNCN cục bộ (`modules.business.payroll`)
+        — không gọi AI, không tốn quota. `path` là file "bảng chấm công" đang
+        mở; kết quả là 1 file "Bảng lương" mới, đi qua đúng cơ chế staging
+        + file-card "Bấm để xem trước & lưu" như `process_document_set()`."""
+        self.chat.start_ai()
+        self.chat.stream_ai("Đang tính lương…")
+
+        self._payroll_worker = CallWorker(compute_payroll_file, path)
+        self._payroll_worker.ok.connect(self._on_payroll_result)
+        self._payroll_worker.err.connect(self._on_chat_error)
+        self._payroll_worker.start()
+
+    @log_call
+    def _on_payroll_result(self, result: PayrollRunResult):
+        self._pending_meta = (None, False)
+        self._pending_docset_outputs = [result.out_path]
+        if result.out_path not in self._recent_outputs:
+            self._recent_outputs.append(result.out_path)
+
+        summary = (
+            f"Đã tính lương cho {len(result.employees)} nhân viên.\n\n"
+            f"· Tổng lương thực nhận (Net): {result.total_net:,.0f} đ\n"
+            f"· Tổng BHXH/BHYT/BHTN người lao động trích: {result.total_nld_insurance:,.0f} đ\n"
+            f"· Tổng chi phí doanh nghiệp (lương + bảo hiểm DN đóng): "
+            f"{result.total_dn_cost:,.0f} đ\n\n"
+            "Bấm vào file bên dưới để xem trước & lưu — sheet «Chi phí DN» có chi tiết "
+            "phần doanh nghiệp phải đóng.\n\n"
+            f"⚠ Số liệu tính theo mức BHXH/BHYT/BHTN/thuế TNCN «{result.rates_version}» — "
+            "nhờ kế toán đối chiếu lại trước khi dùng chính thức."
+        )
+        self._pending_reply = MockReply(text=summary)
+        self._start_stream(self._pending_reply.text)
+
+    @log_call
     def _finish_reply(self):
         self.chat.end_ai()
         reply = self._pending_reply
@@ -744,6 +843,7 @@ class MainWindow(QMainWindow):
 
     # ══ Modal: Xác nhận ghi đè ═══════════════════════════════════════════════
 
+    @log_call
     def _confirm_overwrite(self):
         name = Path(self._current_path).name
         dlg = OverwriteDialog(name, self)
@@ -758,6 +858,7 @@ class MainWindow(QMainWindow):
 
     # ══ Modal: Chuyển đổi định dạng ══════════════════════════════════════════
 
+    @log_call
     def _open_convert(self):
         if not self._current_path:
             return
@@ -765,6 +866,7 @@ class MainWindow(QMainWindow):
         dlg.conversion_done.connect(self._on_converted)
         dlg.exec()
 
+    @log_call
     def _on_converted(self, out_path: str):
         path_obj = Path(out_path)
         if path_obj.is_dir():
@@ -779,12 +881,14 @@ class MainWindow(QMainWindow):
 
     # ══ Trích xuất toàn bộ văn bản PDF (cục bộ — không qua AI) ══════════════
 
+    @log_call
     def _on_extract_text(self):
         if not self._current_path or self._current_type != "pdf":
             return
         try:
             content = extract_pdf(self._current_path).claude_content
         except Exception as exc:
+            logger.exception("PDF text extraction failed for %s", self._current_path)
             self.chat.add_system(f"⚠ Không trích xuất được văn bản: {exc}")
             return
 
@@ -796,6 +900,7 @@ class MainWindow(QMainWindow):
         try:
             Path(out_path).write_text(content, encoding="utf-8")
         except OSError as exc:
+            logger.exception("Failed to write extracted text to %s", out_path)
             self.chat.add_system(f"⚠ Không ghi được file: {exc}")
             return
         self.chat.add_system(f"✓ Đã trích xuất văn bản vào «{Path(out_path).name}»")
@@ -803,6 +908,7 @@ class MainWindow(QMainWindow):
 
     # ══ Tạo tài liệu mới bằng chat (7.1–7.6, EC1–EC6) ═══════════════════════
 
+    @log_call
     def _handle_create_intent(self, intent: str, text: str):
         """`intent` từ `detect_create_intent()`: "word"/"excel"/"ppt" (đoán
         được định dạng), "needs_type" (chắc là tạo mới, chưa rõ định dạng),
@@ -840,6 +946,7 @@ class MainWindow(QMainWindow):
             lambda file_type: self._on_doc_type_confirmed(file_type, text, page_count))
         self.chat.add_widget_row(picker)
 
+    @log_call
     def _on_doc_type_confirmed(self, file_type: str, user_text: str, page_count: int):
         """7.3 — đặt tên & chọn nơi lưu, rồi bắt đầu soạn."""
         cfg = load_config()
@@ -854,6 +961,7 @@ class MainWindow(QMainWindow):
         save_config(cfg)
         self._start_generation(file_type, user_text, page_count, dlg.result_path, dlg.open_after)
 
+    @log_call
     def _start_generation(self, file_type: str, user_text: str, page_count: int,
                           final_path: str, open_after: bool):
         """7.4 — gọi AI soạn nội dung thật (qua /chat có sẵn) rồi dựng file
@@ -879,9 +987,11 @@ class MainWindow(QMainWindow):
         self._gen_worker.failed.connect(self._on_gen_failed)
         self._gen_worker.start()
 
+    @log_call
     def _on_gen_page_done(self, page_number: int, total: int, label: str):
         self.preview.pages.show_message(f"Đang soạn {label} ({page_number}/{total})…")
 
+    @log_call
     def _on_gen_finished(self, tmp_path: str, sections, quota: dict):
         if quota.get("quota_remaining") is not None:
             self._quota_remaining = quota["quota_remaining"]
@@ -892,6 +1002,7 @@ class MainWindow(QMainWindow):
         self._show_preview_ready(
             tmp_path, "Đã tạo xong. Bạn xem trước rồi lưu, hoặc bảo mình chỉnh tiếp.")
 
+    @log_call
     def _on_gen_failed(self, message: str, pages_done: int, partial_sections):
         """EC5 — soạn thất bại giữa chừng. `partial_sections` chỉ khác rỗng
         khi server đã trả nội dung nhưng bước dựng file cục bộ mới lỗi."""
@@ -904,11 +1015,13 @@ class MainWindow(QMainWindow):
         self.chat.add_widget_row(card)
         self.preview.pages.show_message(f"Tạo file thất bại:\n{message}")
 
+    @log_call
     def _retry_generation(self):
         self._start_generation(
             self._gen_file_type, self._gen_user_text, self._gen_page_count,
             self._gen_final_path, self._gen_open_after)
 
+    @log_call
     def _save_partial_generation(self, partial_sections):
         try:
             fd, tmp_path = tempfile.mkstemp(
@@ -922,12 +1035,15 @@ class MainWindow(QMainWindow):
                 self.chat.add_system("⚠ Chưa thể lưu một phần cho file Excel.")
                 return
         except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to save partial generation (file_type=%s)",
+                             self._gen_file_type)
             self.chat.add_system(f"⚠ Không lưu được phần đã có: {exc}")
             return
         self._show_preview_ready(
             tmp_path,
             f"Đã lưu tạm {len(partial_sections)} phần đã soạn được. Bạn xem trước rồi lưu.")
 
+    @log_call
     def _show_preview_ready(self, tmp_path: str, message: str):
         """7.5 — xem trước file vừa dựng (chưa lưu) + nút Lưu file."""
         self._gen_tmp_path = tmp_path
@@ -942,6 +1058,7 @@ class MainWindow(QMainWindow):
         save_btn.clicked.connect(lambda: self._on_save_generated(save_btn))
         self.chat.add_widget_row(save_btn)
 
+    @log_call
     def _on_save_generated(self, save_btn: QPushButton):
         """7.6 — lưu file thật vào nơi đã chọn, rồi làm việc luôn với nó
         (y hệt trạng thái đính kèm file có sẵn, không xóa hội thoại)."""
@@ -951,6 +1068,7 @@ class MainWindow(QMainWindow):
             Path(final_path).parent.mkdir(parents=True, exist_ok=True)
             shutil.move(tmp_path, final_path)
         except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to move generated file %s -> %s", tmp_path, final_path)
             self.chat.add_system(f"⚠ Không lưu được file: {exc}")
             save_btn.setEnabled(True)
             return
@@ -969,18 +1087,21 @@ class MainWindow(QMainWindow):
 
     # ══ Modal: Cài đặt ═══════════════════════════════════════════════════════
 
+    @log_call
     def _open_settings(self):
         dlg = SettingsDialog(self)
         dlg.logged_out.connect(self._handle_logout)
         dlg.exec()
         self._refresh_account()
 
+    @log_call
     def _handle_logout(self):
         from ...bootstrap import restart_to_login
         restart_to_login(self)
 
     # ══ File card (mock) ═════════════════════════════════════════════════════
 
+    @log_call
     def _on_file_card(self, file_name: str):
         path_obj = Path(file_name)
         if path_obj.is_absolute() and path_obj.exists():
@@ -993,6 +1114,7 @@ class MainWindow(QMainWindow):
             self, APP_NAME,
             f"«{file_name}»\n\nFile kết quả sẽ được tạo thật khi tích hợp backend AI.")
 
+    @log_call
     def _is_staged_output(self, path_obj: Path) -> bool:
         """File kết quả từ process_document_set() (gộp / trích xuất & gộp nguồn
         hỗn hợp) — chưa được lưu thật, còn nằm ở thư mục staging tạm."""
@@ -1002,6 +1124,7 @@ class MainWindow(QMainWindow):
         except ValueError:
             return False
 
+    @log_call
     def _save_and_open_staged(self, staged_path: Path):
         """Lưu file kết quả (gộp / trích xuất & gộp nguồn hỗn hợp) ra vị trí
         người dùng chọn, rồi tiếp tục làm việc với nó ngay trong cuộc trò
@@ -1017,6 +1140,7 @@ class MainWindow(QMainWindow):
 
     # ══ Dọn dẹp ══════════════════════════════════════════════════════════════
 
+    @log_call
     def closeEvent(self, event):
         self.preview.cleanup()
         super().closeEvent(event)

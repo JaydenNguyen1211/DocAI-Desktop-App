@@ -23,6 +23,10 @@ from ...modules.pptx.render import ppt_page_source
 from ...modules.word.render import word_page_source
 from ..constants import FILE_BADGE, OPEN_WITH_LABEL
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _SOURCE_FACTORIES = {
     "word": word_page_source,
     "excel": excel_page_source,
@@ -32,6 +36,7 @@ _SOURCE_FACTORIES = {
 }
 
 
+@log_call
 def _open_path(path: str) -> None:
     if sys.platform == "win32":
         os.startfile(path)  # noqa: S606
@@ -64,6 +69,7 @@ class PagePreviewWidget(QScrollArea):
     _SCROLL_DEBOUNCE_MS = 80
     _page_ready = Signal(int, int, object, int)  # (thế hệ, idx, QImage, chiều cao thật)
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
@@ -106,6 +112,7 @@ class PagePreviewWidget(QScrollArea):
 
     # ── API công khai ────────────────────────────────────────────────────────
 
+    @log_call
     def show_message(self, msg: str):
         self._reset(close_source=True)
         lbl = QLabel(msg)
@@ -115,6 +122,7 @@ class PagePreviewWidget(QScrollArea):
         pos = self._vbox.indexOf(self._top_spacer) + 1
         self._vbox.insertWidget(pos, lbl)
 
+    @log_call
     def load_source(self, source):
         """`source`: có .page_count, .page_size(i), .png_path(i), .close()."""
         self._load_gen += 1
@@ -136,9 +144,11 @@ class PagePreviewWidget(QScrollArea):
         self._window = (0, 0)
         self._apply_window()
 
+    @log_call
     def cleanup(self):
         self._reset(close_source=True)
 
+    @log_call
     def goto_page(self, idx: int):
         """Cuộn tới trang `idx` (0-based) — dùng cho kết quả tìm kiếm từ khóa."""
         if not self._cum_offsets or not 0 <= idx < len(self._cum_offsets):
@@ -147,6 +157,7 @@ class PagePreviewWidget(QScrollArea):
 
     # ── Bố cục ảo hoá ────────────────────────────────────────────────────────
 
+    @log_call
     def _reset(self, close_source: bool):
         pos = self._vbox.indexOf(self._top_spacer) + 1
         end = self._vbox.indexOf(self._bottom_spacer)
@@ -166,6 +177,7 @@ class PagePreviewWidget(QScrollArea):
             self._source.close()
         self._source = None
 
+    @log_call
     def _recompute_offsets(self):
         offsets = []
         offset_y = 0
@@ -175,6 +187,7 @@ class PagePreviewWidget(QScrollArea):
             offset_y += height + gap
         self._cum_offsets = offsets
 
+    @log_call
     def _span_height(self, start: int, end: int) -> int:
         """Chiều cao (kèm khoảng cách nội bộ) của các trang [start, end)."""
         if end <= start:
@@ -182,12 +195,14 @@ class PagePreviewWidget(QScrollArea):
         gap = self._vbox.spacing()
         return sum(self._page_heights[start:end]) + gap * (end - start - 1)
 
+    @log_call
     def _index_at_offset(self, offset_y: int) -> int:
         if not self._cum_offsets:
             return 0
         idx = bisect.bisect_right(self._cum_offsets, offset_y) - 1
         return max(0, min(idx, len(self._cum_offsets) - 1))
 
+    @log_call
     def _desired_window(self) -> tuple[int, int]:
         page_count = len(self._page_heights)
         if page_count == 0:
@@ -200,6 +215,7 @@ class PagePreviewWidget(QScrollArea):
         end = min(page_count, end + self._BUFFER_PAGES)
         return start, end
 
+    @log_call
     def _apply_window(self):
         if self._source is None or not self._page_heights:
             return
@@ -242,6 +258,7 @@ class PagePreviewWidget(QScrollArea):
 
     # ── Raster + decode nền ─────────────────────────────────────────────────
 
+    @log_call
     def _decode_pages(self, gen: int, source, indices: list[int]):
         from PIL import Image
         for idx in indices:
@@ -254,12 +271,15 @@ class PagePreviewWidget(QScrollArea):
                     resized = img.resize((self._PAGE_W, new_h), Image.LANCZOS)
                     qimg = pil_to_qimage(resized)
             except Exception:
+                logger.warning("Failed to decode preview page %d — skipping.", idx,
+                               exc_info=True)
                 continue
             try:
                 self._page_ready.emit(gen, idx, qimg, new_h)
             except RuntimeError:
                 return   # widget đã bị hủy (đóng app giữa chừng lúc còn decode)
 
+    @log_call
     def _on_page_ready(self, gen: int, idx: int, qimage, real_h: int):
         if gen != self._load_gen:
             return
@@ -289,6 +309,7 @@ class PreviewPanel(QFrame):
     _preview_err = Signal(int, str)
     _pdf_text_ready = Signal(int, list)    # (thế hệ, văn bản từng trang)
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("previewPanel")
@@ -386,6 +407,7 @@ class PreviewPanel(QFrame):
 
     # ── Nạp file (mở nguồn trang ở luồng nền) ───────────────────────────────
 
+    @log_call
     def load_file(self, path: str, file_type: str, name: str):
         self._gen += 1
         gen = self._gen
@@ -411,7 +433,8 @@ class PreviewPanel(QFrame):
                     pages = pdf_page_texts(path)
                     self._pdf_text_ready.emit(gen, pages)
                 except Exception:
-                    pass
+                    logger.warning("Failed to load PDF text for search: %s", path,
+                                   exc_info=True)
             threading.Thread(target=_load_text, daemon=True).start()
 
         factory = _SOURCE_FACTORIES.get(file_type)
@@ -430,26 +453,31 @@ class PreviewPanel(QFrame):
                 source = factory(path)
                 self._preview_ready.emit(gen, source)
             except Exception as exc:
+                logger.exception("Failed to build preview page source for %s", path)
                 self._preview_err.emit(gen, str(exc))
 
         threading.Thread(target=_work, daemon=True).start()
 
+    @log_call
     def _on_ready(self, gen: int, source):
         if gen != self._gen:
             source.close()   # kết quả của file đã bị thay — bỏ, đóng nguồn
             return
         self.pages.load_source(source)
 
+    @log_call
     def _on_err(self, gen: int, msg: str):
         if gen != self._gen:
             return
         self.pages.show_message(f"Không xem trước được:\n{msg}")
 
+    @log_call
     def cleanup(self):
         self.pages.cleanup()
 
     # ── Tìm kiếm từ khóa trong PDF ───────────────────────────────────────────
 
+    @log_call
     def _on_pdf_text_ready(self, gen: int, pages: list):
         if gen != self._gen:
             return
@@ -457,6 +485,7 @@ class PreviewPanel(QFrame):
         if self.search_input.text().strip():
             self._run_search()
 
+    @log_call
     def _run_search(self):
         query = self.search_input.text().strip().lower()
         if not query or not self._pdf_pages_text:
@@ -471,6 +500,7 @@ class PreviewPanel(QFrame):
         if self._search_matches:
             self.pages.goto_page(self._search_matches[0])
 
+    @log_call
     def _update_search_count(self):
         if not self._search_matches:
             self.search_count.setText(
@@ -480,6 +510,7 @@ class PreviewPanel(QFrame):
         self.search_count.setText(
             f"Trang {page} ({self._search_pos + 1}/{len(self._search_matches)})")
 
+    @log_call
     def _search_next(self):
         if not self._search_matches:
             self._run_search()
@@ -488,6 +519,7 @@ class PreviewPanel(QFrame):
         self._update_search_count()
         self.pages.goto_page(self._search_matches[self._search_pos])
 
+    @log_call
     def _search_prev(self):
         if not self._search_matches:
             return
@@ -497,10 +529,12 @@ class PreviewPanel(QFrame):
 
     # ── 7.6: mở thư mục chứa file / mở bằng ứng dụng mặc định ────────────────
 
+    @log_call
     def _open_folder(self):
         if self._current_path:
             _open_path(str(Path(self._current_path).parent))
 
+    @log_call
     def _open_with(self):
         if self._current_path:
             _open_path(self._current_path)

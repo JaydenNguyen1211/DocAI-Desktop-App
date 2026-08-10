@@ -4,7 +4,12 @@ import tempfile
 
 from ...imkit import LazyPdfSource
 
+from ...logging_config import get_logger, log_call
 
+logger = get_logger(__name__)
+
+
+@log_call
 def word_to_pdf(path: str, out_path: str | None = None) -> str:
     """Xuất .docx ra PDF. Windows: Word COM. macOS: Microsoft Office → LibreOffice. Linux: LibreOffice."""
     abs_path = os.path.abspath(path)
@@ -24,6 +29,7 @@ def word_to_pdf(path: str, out_path: str | None = None) -> str:
     return out_path
 
 
+@log_call
 def _word_to_pdf_mac(abs_path: str, out_path: str) -> None:
     from ..common._msoffice_mac import is_available, word_to_pdf as ms_word_to_pdf
     from ..common._soffice import convert_to_pdf
@@ -33,6 +39,7 @@ def _word_to_pdf_mac(abs_path: str, out_path: str) -> None:
         convert_to_pdf(abs_path, out_path)
 
 
+@log_call
 def _word_to_pdf_com(abs_path: str, out_path: str) -> None:
     import win32com.client
     import pythoncom
@@ -48,6 +55,7 @@ def _word_to_pdf_com(abs_path: str, out_path: str) -> None:
         pythoncom.CoUninitialize()
 
 
+@log_call
 def word_page_source(path: str, dpi: int = 150) -> LazyPdfSource:
     pdf_path = word_to_pdf(path)
     tmp_dir = tempfile.mkdtemp(prefix="docai_pages_")

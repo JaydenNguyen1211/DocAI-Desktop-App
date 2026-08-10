@@ -9,15 +9,21 @@ tách thành từng trang/slide — nếu AI không theo đúng định dạng,
 import re
 from dataclasses import dataclass
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 try:
     from docx import Document as DocxDocument
 except ImportError:
+    logger.debug("python-docx not installed — create_word() will raise if called.")
     DocxDocument = None  # type: ignore
 
 try:
     import pptx
     from pptx import Presentation
 except ImportError:
+    logger.debug("python-pptx not installed — create_pptx() will raise if called.")
     pptx = None  # type: ignore
     Presentation = None  # type: ignore
 
@@ -34,6 +40,7 @@ class SectionSpec:
     body: str
 
 
+@log_call
 def parse_sections(raw_text: str, expected_count: int = 0) -> list[SectionSpec]:
     """Tách văn bản AI trả về thành từng trang/phần theo mốc `### Trang N: …`.
 
@@ -67,6 +74,7 @@ def parse_sections(raw_text: str, expected_count: int = 0) -> list[SectionSpec]:
     return sections
 
 
+@log_call
 def create_word(sections: list[SectionSpec], out_path: str):
     if DocxDocument is None:
         raise RuntimeError("Thiếu thư viện python-docx để tạo file Word.")
@@ -81,6 +89,7 @@ def create_word(sections: list[SectionSpec], out_path: str):
     doc.save(out_path)
 
 
+@log_call
 def create_pptx(sections: list[SectionSpec], out_path: str):
     if Presentation is None:
         raise RuntimeError("Thiếu thư viện python-pptx để tạo file PowerPoint.")
@@ -98,5 +107,6 @@ def create_pptx(sections: list[SectionSpec], out_path: str):
     prs.save(out_path)
 
 
+@log_call
 def create_excel_from_text(raw_text: str, out_path: str):
     save_excel(raw_text, out_path)

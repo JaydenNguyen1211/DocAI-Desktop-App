@@ -18,6 +18,10 @@ from ..constants import FILE_BADGE_STYLE
 from .icons import folder_icon_filled, chevron_icon
 from .folder_scan import ScannedFile
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _BADGE_CLASS = {
     "doc": "fileBadgeDoc", "pdf": "fileBadgePdf",
     "xls": "fileBadgeXls", "other": "fileBadgeOther",
@@ -29,6 +33,7 @@ class _GroupRow(QFrame):
 
     toggled = Signal()
 
+    @log_call
     def __init__(self, name: str, count: int, parent=None):
         super().__init__(parent)
         self._expanded = True
@@ -56,9 +61,11 @@ class _GroupRow(QFrame):
         lay.addWidget(self._count_lbl)
         lay.addStretch()
 
+    @log_call
     def set_count(self, count: int):
         self._count_lbl.setText(f"({count})")
 
+    @log_call
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._expanded = not self._expanded
@@ -66,6 +73,7 @@ class _GroupRow(QFrame):
             self.toggled.emit()
         super().mousePressEvent(event)
 
+    @log_call
     def is_expanded(self) -> bool:
         return self._expanded
 
@@ -75,6 +83,7 @@ class _FileRow(QFrame):
 
     remove_clicked = Signal()
 
+    @log_call
     def __init__(self, sf: ScannedFile, parent=None):
         super().__init__(parent)
         self.file = sf
@@ -110,6 +119,7 @@ class FolderTree(QWidget):
 
     file_removed = Signal(str)         # đường dẫn file vừa bị xóa khỏi danh sách
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         outer = QVBoxLayout(self)
@@ -144,6 +154,7 @@ class FolderTree(QWidget):
 
     # ── Nạp danh sách file mới ─────────────────────────────────────────────
 
+    @log_call
     def set_files(self, files: list[ScannedFile], counts: dict[str, int]):
         self._clear()
 
@@ -186,6 +197,7 @@ class FolderTree(QWidget):
             self._group_rows[group] = rows
             self._apply_visibility(group)
 
+    @log_call
     def _clear(self):
         while self._list_lay.count() > 1:
             item = self._list_lay.takeAt(0)
@@ -204,6 +216,7 @@ class FolderTree(QWidget):
 
     # ── Chip lọc theo loại ──────────────────────────────────────────────────
 
+    @log_call
     def _make_chip(self, label: str, ext_type: str | None) -> QPushButton:
         chip = QPushButton(label)
         chip.setProperty("class", "filterChip")
@@ -215,11 +228,13 @@ class FolderTree(QWidget):
         self._chips[ext_type] = chip
         return chip
 
+    @log_call
     def _set_filter(self, ext_type: str | None):
         self._active_filter = ext_type
         for group in self._group_rows:
             self._apply_visibility(group)
 
+    @log_call
     def _apply_visibility(self, group: str):
         header = self._groups.get(group)
         expanded = header.is_expanded() if header else True
@@ -234,6 +249,7 @@ class FolderTree(QWidget):
 
     # ── Xóa 1 file khỏi danh sách ─────────────────────────────────────────────
 
+    @log_call
     def _remove_row(self, row: "_FileRow"):
         group = row.file.group
         path = row.file.path

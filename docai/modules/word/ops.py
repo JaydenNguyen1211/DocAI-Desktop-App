@@ -19,6 +19,10 @@ from docx.shared import Pt, Cm, RGBColor
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class WordOpError(Exception):
     """Lệnh sửa không hợp lệ — thông báo tiếng Việt cho người dùng."""
@@ -61,6 +65,7 @@ OPS = (
 
 # ── Đọc cấu trúc ───────────────────────────────────────────────────────────
 
+@log_call
 def _has_page_break(para: Paragraph) -> bool:
     for br in para._p.findall(f".//{qn('w:br')}"):
         if br.get(qn("w:type")) == "page":
@@ -68,6 +73,7 @@ def _has_page_break(para: Paragraph) -> bool:
     return False
 
 
+@log_call
 def _page_numbers(doc) -> list[int]:
     """Số trang của từng đoạn (1-based), theo ngắt trang thủ công."""
     pages, page = [], 1
@@ -80,6 +86,7 @@ def _page_numbers(doc) -> list[int]:
     return pages
 
 
+@log_call
 def outline(path: str, max_chars: int = 90) -> dict:
     """Cấu trúc tài liệu để gửi lên server làm ngữ cảnh cho Claude."""
     doc = DocxDocument(path)
@@ -112,6 +119,7 @@ def outline(path: str, max_chars: int = 90) -> dict:
     }
 
 
+@log_call
 def outline_text(path: str) -> str:
     """Outline dạng văn bản gọn cho prompt."""
     data = outline(path)
@@ -135,6 +143,7 @@ def outline_text(path: str) -> str:
 
 # ── Tiện ích thao tác trên XML ─────────────────────────────────────────────
 
+@log_call
 def _insert_after(para: Paragraph, text: str = "", style: str | None = None) -> Paragraph:
     new_p = OxmlElement("w:p")
     para._p.addnext(new_p)
@@ -146,6 +155,7 @@ def _insert_after(para: Paragraph, text: str = "", style: str | None = None) -> 
     return new_para
 
 
+@log_call
 def _set_style(para: Paragraph, style: str):
     try:
         para.style = style
@@ -153,6 +163,7 @@ def _set_style(para: Paragraph, style: str):
         raise WordOpError(f"Tài liệu không có style «{style}».")
 
 
+@log_call
 def _set_text(para: Paragraph, text: str):
     """Thay nội dung đoạn, giữ định dạng của run đầu tiên."""
     runs = para.runs
@@ -164,10 +175,12 @@ def _set_text(para: Paragraph, text: str):
         para.add_run(text)
 
 
+@log_call
 def _delete(para: Paragraph):
     para._p.getparent().remove(para._p)
 
 
+@log_call
 def _add_lines(after: Paragraph | None, doc, text: str,
                style: str | None = None) -> Paragraph:
     """Thêm text (có thể nhiều dòng) — nối tiếp sau `after`, hoặc cuối tài liệu."""
@@ -184,6 +197,7 @@ def _add_lines(after: Paragraph | None, doc, text: str,
 
 # ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
 
+@log_call
 def _need(edit: dict, key: str):
     val = edit.get(key)
     if val is None or (isinstance(val, str) and not val.strip()):
@@ -191,6 +205,7 @@ def _need(edit: dict, key: str):
     return val
 
 
+@log_call
 def _para_at(paras: list[Paragraph], edit: dict) -> Paragraph:
     idx = _need(edit, "index")
     try:
@@ -204,6 +219,7 @@ def _para_at(paras: list[Paragraph], edit: dict) -> Paragraph:
     return paras[idx]
 
 
+@log_call
 def _page_paras(paras: list[Paragraph], pages: list[int],
                 page: int) -> list[Paragraph]:
     try:
@@ -217,6 +233,7 @@ def _page_paras(paras: list[Paragraph], pages: list[int],
     return found
 
 
+@log_call
 def _table_at(doc, edit: dict):
     idx = _need(edit, "table_index")
     try:
@@ -231,6 +248,7 @@ def _table_at(doc, edit: dict):
     return tables[idx]
 
 
+@log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
     """Áp lần lượt các lệnh sửa lên file, lưu một lần. Trả về mô tả từng lệnh.
 
@@ -261,6 +279,7 @@ def apply_edits(path: str, edits: list[dict]) -> list[str]:
     return notes
 
 
+@log_call
 def _run_op(doc, paras: list[Paragraph], pages: list[int],
             op: str, edit: dict) -> str:
     style = edit.get("style") or None
@@ -406,6 +425,7 @@ def _run_op(doc, paras: list[Paragraph], pages: list[int],
     return f"xóa trang {page} ({len(victims)} đoạn)"
 
 
+@log_call
 def _is_simple_run(run: Run) -> bool:
     """True nếu run chỉ chứa đúng một <w:t> (không tab/break/nhiều đoạn chữ)
     — an toàn để tách đôi. Run do add_run() tạo ra luôn ở dạng này."""
@@ -414,6 +434,7 @@ def _is_simple_run(run: Run) -> bool:
     return len(children) == 1 and children[0].tag == qn("w:t")
 
 
+@log_call
 def _split_run(run: Run, offset: int) -> tuple[Run, Run]:
     """Tách run thành 2 run tại vị trí `offset` trong run.text, run mới giữ
     nguyên định dạng (rPr) của run gốc. Chỉ dùng khi `_is_simple_run(run)`."""
@@ -432,6 +453,7 @@ def _split_run(run: Run, offset: int) -> tuple[Run, Run]:
     return Run(run_elem, run._parent), Run(new_r, run._parent)
 
 
+@log_call
 def _format_run_range(para: Paragraph, start: int, end: int) -> list[Run]:
     """Tách các run bị cắt ngang bởi [start, end) rồi trả về đúng những run
     nằm gọn trong khoảng đó — để định dạng chỉ áp lên phần chữ đã chọn, không
@@ -469,6 +491,7 @@ def _format_run_range(para: Paragraph, start: int, end: int) -> list[Run]:
     return result
 
 
+@log_call
 def _set_run_font(run: Run, name: str):
     """Đổi font, đặt cả ascii/hAnsi (qua API) lẫn eastAsia/cs (qua XML trực
     tiếp) để Word không tự thay font cho một số dải ký tự."""
@@ -482,6 +505,7 @@ def _set_run_font(run: Run, name: str):
     rFonts.set(qn("w:cs"), name)
 
 
+@log_call
 def _clean_hex(color) -> str:
     hex_color = str(color).strip().lstrip("#").upper()
     if len(hex_color) != 6 or any(ch not in "0123456789ABCDEF" for ch in hex_color):
@@ -489,6 +513,7 @@ def _clean_hex(color) -> str:
     return hex_color
 
 
+@log_call
 def _format(para: Paragraph, edit: dict) -> str:
     changes = []
     target = edit.get("text") or None
@@ -576,6 +601,7 @@ def _format(para: Paragraph, edit: dict) -> str:
     return f"định dạng {scope}: {', '.join(changes)}"
 
 
+@log_call
 def _set_list(para: Paragraph, edit: dict) -> str:
     list_type = str(edit.get("list_type") or "").strip().lower()
     if list_type == "none":
@@ -595,6 +621,7 @@ def _set_list(para: Paragraph, edit: dict) -> str:
     return f"đặt đoạn {edit['index']} thành danh sách {label}"
 
 
+@log_call
 def _replace_text(doc, find: str, repl: str) -> int:
     """Thay chuỗi trong mọi đoạn (kể cả trong bảng). Trả về số đoạn bị đổi."""
     count = 0
@@ -616,6 +643,7 @@ def _replace_text(doc, find: str, repl: str) -> int:
 
 # ── Bảng biểu ────────────────────────────────────────────────────────────────
 
+@log_call
 def _create_table(doc, paras: list[Paragraph], edit: dict) -> str:
     rows = int(_need(edit, "rows"))
     cols = int(_need(edit, "cols"))
@@ -627,7 +655,8 @@ def _create_table(doc, paras: list[Paragraph], edit: dict) -> str:
     try:
         table.style = "Table Grid"
     except KeyError:
-        pass  # style chưa có sẵn trong tài liệu — vẫn tạo bảng, chỉ thiếu viền mặc định
+        logger.debug("'Table Grid' style not in document — table created without default borders.")
+        # style chưa có sẵn trong tài liệu — vẫn tạo bảng, chỉ thiếu viền mặc định
 
     if data:
         for row_idx, row_vals in enumerate(data):
@@ -656,6 +685,7 @@ def _create_table(doc, paras: list[Paragraph], edit: dict) -> str:
     return f"tạo bảng {rows}×{cols} ở {where}"
 
 
+@log_call
 def _add_table_row(table, edit: dict) -> str:
     data = edit.get("data")
     original_count = len(table.rows)
@@ -681,6 +711,7 @@ def _add_table_row(table, edit: dict) -> str:
     return "thêm hàng mới vào cuối bảng"
 
 
+@log_call
 def _delete_table_row(table, edit: dict) -> str:
     row_index = _need(edit, "row_index")
     try:
@@ -696,6 +727,7 @@ def _delete_table_row(table, edit: dict) -> str:
     return f"xóa hàng {row_index} của bảng"
 
 
+@log_call
 def _table_grid(table):
     tbl = table._tbl
     grid = tbl.find(qn("w:tblGrid"))
@@ -709,6 +741,7 @@ def _table_grid(table):
     return grid
 
 
+@log_call
 def _add_table_column(table, edit: dict) -> str:
     data = edit.get("data")
     at = edit.get("at")
@@ -754,6 +787,7 @@ def _add_table_column(table, edit: dict) -> str:
     return f"thêm cột mới vào bảng ở vị trí {at}"
 
 
+@log_call
 def _delete_table_column(table, edit: dict) -> str:
     col_index = _need(edit, "col_index")
     try:
@@ -781,6 +815,7 @@ def _delete_table_column(table, edit: dict) -> str:
     return f"xóa cột {col_index} của bảng"
 
 
+@log_call
 def _set_table_cell(table, edit: dict) -> str:
     """Đặt lại toàn bộ nội dung chữ của 1 ô ĐÃ CÓ SẴN trong bảng — không thêm/
     xóa hàng hay cột. Giữ định dạng của run đầu tiên trong ô (giống cách
@@ -801,6 +836,7 @@ def _set_table_cell(table, edit: dict) -> str:
     return f"đặt ô ({row_idx},{col_idx}) của bảng thành «{_short(str(text))}»"
 
 
+@log_call
 def _merge_table_cells(table, edit: dict) -> str:
     r1 = int(_need(edit, "start_row"))
     c1 = int(_need(edit, "start_col"))
@@ -818,6 +854,7 @@ def _merge_table_cells(table, edit: dict) -> str:
     return f"gộp ô ({r1},{c1})–({r2},{c2}) trong bảng"
 
 
+@log_call
 def _ensure_tcPr(tc):
     tcPr = tc.find(qn("w:tcPr"))
     if tcPr is None:
@@ -826,6 +863,7 @@ def _ensure_tcPr(tc):
     return tcPr
 
 
+@log_call
 def _set_grid_span(tc, span: int):
     tcPr = _ensure_tcPr(tc)
     gs = tcPr.find(qn("w:gridSpan"))
@@ -839,6 +877,7 @@ def _set_grid_span(tc, span: int):
     gs.set(qn("w:val"), str(span))
 
 
+@log_call
 def _split_table_cell(table, edit: dict) -> str:
     """Tách 1 ô đã gộp (gridSpan > 1) thành nhiều ô nhỏ hơn, chia đều số cột
     lưới đang chiếm. Ô chưa từng gộp (gridSpan == 1) không tách được — muốn
@@ -883,6 +922,7 @@ def _split_table_cell(table, edit: dict) -> str:
     return f"tách ô ({row_idx},{col_idx}) thành {n} phần"
 
 
+@log_call
 def _cell_set_shading(cell, color) -> None:
     hex_color = _clean_hex(color)
     tcPr = _ensure_tcPr(cell._tc)
@@ -895,6 +935,7 @@ def _cell_set_shading(cell, color) -> None:
     shd.set(qn("w:fill"), hex_color)
 
 
+@log_call
 def _cell_set_borders(cell, color, size: int) -> None:
     hex_color = _clean_hex(color)
     tcPr = _ensure_tcPr(cell._tc)
@@ -912,6 +953,7 @@ def _cell_set_borders(cell, color, size: int) -> None:
         el.set(qn("w:color"), hex_color)
 
 
+@log_call
 def _table_set_borders(table, color, size: int) -> None:
     hex_color = _clean_hex(color)
     tbl = table._tbl
@@ -938,6 +980,7 @@ _VALIGN_LABEL = {"top": "căn trên", "center": "căn giữa dọc", "bottom": "
 _FONT_KEYS = ("bold", "italic", "underline", "font_size", "font_name", "font_color")
 
 
+@log_call
 def _cell_set_valign(cell, valign: str) -> None:
     tcPr = _ensure_tcPr(cell._tc)
     va = tcPr.find(qn("w:vAlign"))
@@ -947,6 +990,7 @@ def _cell_set_valign(cell, valign: str) -> None:
     va.set(qn("w:val"), valign)
 
 
+@log_call
 def _apply_cell_format(cell, edit: dict) -> None:
     """Áp shading/viền/font/căn lề lên 1 ô — dùng chung cho mọi scope của
     format_table. `edit["border"]` là cờ đã được _format_table quyết định
@@ -992,6 +1036,7 @@ def _apply_cell_format(cell, edit: dict) -> None:
         _cell_set_valign(cell, valign)
 
 
+@log_call
 def _format_table(table, edit: dict) -> str:
     scope = str(edit.get("scope") or "table").lower()
     color = edit.get("shading_color")
@@ -1056,6 +1101,7 @@ def _format_table(table, edit: dict) -> str:
     return f"định dạng {where}: {', '.join(changes)}"
 
 
+@log_call
 def _short(text: str, limit: int = 40) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[:limit] + "…"

@@ -17,6 +17,10 @@ from pptx.enum.text import PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Cm, Pt
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class PptxOpError(Exception):
     """Lệnh sửa không hợp lệ — thông báo tiếng Việt cho người dùng."""
@@ -40,6 +44,7 @@ _ALIGN = {
 }
 
 
+@log_call
 def _need(edit: dict, key: str):
     val = edit.get(key)
     if val is None or (isinstance(val, str) and not val.strip()):
@@ -47,11 +52,13 @@ def _need(edit: dict, key: str):
     return val
 
 
+@log_call
 def _short(text, limit: int = 80) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+@log_call
 def _clean_hex(color) -> str:
     hex_color = str(color).strip().lstrip("#").upper()
     if len(hex_color) != 6 or any(ch not in "0123456789ABCDEF" for ch in hex_color):
@@ -61,6 +68,7 @@ def _clean_hex(color) -> str:
 
 # ── Đọc cấu trúc ───────────────────────────────────────────────────────────
 
+@log_call
 def outline_text(path: str) -> str:
     """Outline dạng văn bản gọn cho prompt."""
     prs = Presentation(path)
@@ -84,6 +92,7 @@ def outline_text(path: str) -> str:
 
 # ── Tiện ích ────────────────────────────────────────────────────────────────
 
+@log_call
 def _slide_at(prs, edit: dict, key: str = "slide"):
     idx = int(_need(edit, key))
     slide_count = len(prs.slides)
@@ -92,6 +101,7 @@ def _slide_at(prs, edit: dict, key: str = "slide"):
     return prs.slides[idx]
 
 
+@log_call
 def _shape_at(slide, edit: dict):
     idx = int(_need(edit, "shape_index"))
     shapes = list(slide.shapes)
@@ -104,6 +114,7 @@ def _shape_at(slide, edit: dict):
     return shape
 
 
+@log_call
 def _fill_text_frame(tf, text: str):
     lines = text.split("\n")
     tf.text = lines[0]
@@ -111,6 +122,7 @@ def _fill_text_frame(tf, text: str):
         tf.add_paragraph().text = line
 
 
+@log_call
 def _move_slide_element(prs, from_pos: int, to_pos: int):
     xml_slides = prs.slides._sldIdLst
     slides = list(xml_slides)
@@ -121,6 +133,7 @@ def _move_slide_element(prs, from_pos: int, to_pos: int):
 
 # ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
 
+@log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
     """Áp lần lượt các lệnh sửa lên file, lưu một lần. Trả về mô tả từng lệnh."""
     if not edits:
@@ -143,6 +156,7 @@ def apply_edits(path: str, edits: list[dict]) -> list[str]:
     return notes
 
 
+@log_call
 def _run_op(prs, op: str, edit: dict) -> str:
     if op == "add_slide":
         return _add_slide(prs, edit)
@@ -166,6 +180,7 @@ def _run_op(prs, op: str, edit: dict) -> str:
     return _set_list(shape, edit)
 
 
+@log_call
 def _set_text(shape, edit: dict) -> str:
     text = _need(edit, "text")
     tf = shape.text_frame
@@ -175,6 +190,7 @@ def _set_text(shape, edit: dict) -> str:
     return f"đặt nội dung shape {edit['shape_index']} ở slide {edit['slide']} thành «{_short(text)}»"
 
 
+@log_call
 def _format_text(shape, edit: dict) -> str:
     tf = shape.text_frame
     target = edit.get("text") or None
@@ -231,6 +247,7 @@ def _format_text(shape, edit: dict) -> str:
     return f"định dạng {scope} ở slide {edit['slide']}: {', '.join(changes)}"
 
 
+@log_call
 def _set_list(shape, edit: dict) -> str:
     list_type = str(_need(edit, "list_type")).lower()
     if list_type not in ("bullet", "number", "none"):
@@ -253,6 +270,7 @@ def _set_list(shape, edit: dict) -> str:
     return f"đặt {label} cho shape {edit['shape_index']} ở slide {edit['slide']}"
 
 
+@log_call
 def _add_slide(prs, edit: dict) -> str:
     layout_key = str(_need(edit, "layout")).lower()
     if layout_key not in _LAYOUT_MAP:
@@ -288,6 +306,7 @@ def _add_slide(prs, edit: dict) -> str:
     return f"thêm slide mới (layout «{layout_key}») vào {where}"
 
 
+@log_call
 def _delete_slide(prs, edit: dict) -> str:
     idx = int(_need(edit, "index"))
     slide_count = len(prs.slides)
@@ -304,6 +323,7 @@ def _delete_slide(prs, edit: dict) -> str:
     return f"xóa slide {idx}"
 
 
+@log_call
 def _move_slide(prs, edit: dict) -> str:
     slide_count = len(prs.slides)
     from_idx = int(_need(edit, "from_index"))
@@ -316,6 +336,7 @@ def _move_slide(prs, edit: dict) -> str:
     return f"chuyển slide {from_idx} tới vị trí {to_idx}"
 
 
+@log_call
 def _insert_image(slide, edit: dict) -> str:
     image_path = _need(edit, "image_path")
     if not Path(image_path).is_file():

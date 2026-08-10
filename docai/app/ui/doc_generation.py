@@ -13,6 +13,10 @@ from ...modules.common.creators import (
     SectionSpec, parse_sections, create_word, create_pptx, create_excel_from_text,
 )
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _PAGE_PACE_MS = 220
 _SHEET_RE = re.compile(r'^-{3}\s*Sheet:\s*(.+?)\s*-{3}\s*$', re.IGNORECASE | re.MULTILINE)
 _SUFFIX = {"word": ".docx", "excel": ".xlsx", "ppt": ".pptx"}
@@ -29,6 +33,7 @@ class DocGenWorker(QThread):
     finished_ok = Signal(str, object, dict)
     failed = Signal(str, int, object)
 
+    @log_call
     def __init__(self, file_type: str, prompt: str, page_count: int,
                  history: list | None = None, business: dict | None = None, parent=None):
         super().__init__(parent)
@@ -38,13 +43,17 @@ class DocGenWorker(QThread):
         self._history = history or []
         self._business = business or {}
 
+    @log_call
     def run(self):
         try:
             data = api_client.chat(self._prompt, "", "", self._business, self._history)
         except ApiError as exc:
+            logger.warning("Document generation chat call failed: %s (code=%s)",
+                           exc.message, exc.code)
             self.failed.emit(exc.message, 0, [])
             return
         except Exception as exc:  # noqa: BLE001
+            logger.exception("Document generation chat call failed unexpectedly")
             self.failed.emit(f"Lỗi không xác định: {exc}", 0, [])
             return
 
@@ -78,6 +87,7 @@ class DocGenWorker(QThread):
             else:
                 create_excel_from_text(raw_text, tmp_path)
         except Exception as exc:  # noqa: BLE001 — lỗi cục bộ, nội dung đã soạn vẫn còn
+            logger.exception("Failed to build generated %s file locally", self._file_type)
             self.failed.emit(f"Không dựng được file: {exc}", total, sections)
             return
 

@@ -11,6 +11,10 @@ import requests
 from .config import load_config, save_config
 from .server_config import firebase_api_key, api_base_url
 
+from ..logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _IDENTITY = "https://identitytoolkit.googleapis.com/v1/accounts"
 _TOKEN_URL = "https://securetoken.googleapis.com/v1/token"
 _TIMEOUT = 300  # AI có thể mất vài chục giây
@@ -32,12 +36,14 @@ _ERR_VI = {
 class ApiError(Exception):
     """Lỗi có thông báo tiếng Việt để hiển thị cho người dùng."""
 
+    @log_call
     def __init__(self, message: str, code: str = ""):
         super().__init__(message)
         self.message = message
         self.code = code
 
 
+@log_call
 def _friendly(code: str) -> str:
     base = code.split(":")[0].strip()  # WEAK_PASSWORD : ... → WEAK_PASSWORD
     if base == "WEAK_PASSWORD":
@@ -47,6 +53,7 @@ def _friendly(code: str) -> str:
 
 # ── Lưu / đọc phiên đăng nhập ──────────────────────────────────────────────
 
+@log_call(log_args=False)  # `data` chứa idToken/refreshToken — không log
 def _store_session(data: dict):
     """Lưu phiên từ cả 2 nguồn: Identity Toolkit (idToken/refreshToken/expiresIn)
     và securetoken refresh (id_token/refresh_token/expires_in)."""
@@ -69,18 +76,22 @@ def _store_session(data: dict):
     save_config(cfg)
 
 
+@log_call(log_result=False)  # kết quả chứa auth token — không log
 def _session() -> dict:
     return load_config().get("auth", {})
 
 
+@log_call
 def is_logged_in() -> bool:
     return bool(_session().get("refresh_token"))
 
 
+@log_call
 def current_email() -> str:
     return _session().get("email", "")
 
 
+@log_call
 def logout():
     cfg = load_config()
     cfg.pop("auth", None)
@@ -89,6 +100,7 @@ def logout():
 
 # ── Firebase Identity Toolkit ──────────────────────────────────────────────
 
+@log_call(log_args=False, log_result=False)  # payload/kết quả chứa password/token
 def _identity(endpoint: str, payload: dict) -> dict:
     key = firebase_api_key()
     try:
@@ -104,6 +116,7 @@ def _identity(endpoint: str, payload: dict) -> dict:
     return body
 
 
+@log_call(log_result=False)  # kết quả chứa idToken/refreshToken
 def signup(email: str, password: str) -> dict:
     data = _identity("signUp", {
         "email": email, "password": password, "returnSecureToken": True,
@@ -112,6 +125,7 @@ def signup(email: str, password: str) -> dict:
     return data
 
 
+@log_call(log_result=False)  # kết quả chứa idToken/refreshToken
 def login(email: str, password: str) -> dict:
     data = _identity("signInWithPassword", {
         "email": email, "password": password, "returnSecureToken": True,
@@ -120,6 +134,7 @@ def login(email: str, password: str) -> dict:
     return data
 
 
+@log_call(log_result=False)  # trả về id_token thô
 def _refresh() -> str:
     sess = _session()
     token = sess.get("refresh_token")
@@ -141,6 +156,7 @@ def _refresh() -> str:
     return _session()["id_token"]
 
 
+@log_call(log_result=False)  # trả về id_token thô
 def _valid_token() -> str:
     sess = _session()
     if not sess.get("id_token"):
@@ -152,6 +168,7 @@ def _valid_token() -> str:
 
 # ── Gọi server (Cloud Function `api`) ──────────────────────────────────────
 
+@log_call
 def _call(method: str, path: str, json_body: dict | None = None,
           retry_auth: bool = True) -> dict:
     token = _valid_token()
@@ -165,6 +182,7 @@ def _call(method: str, path: str, json_body: dict | None = None,
         raise ApiError("Không kết nối được máy chủ. Kiểm tra mạng.")
 
     if response.status_code == 401 and retry_auth:
+        logger.debug("401 from %s %s — refreshing token and retrying once", method, path)
         _refresh()
         return _call(method, path, json_body, retry_auth=False)
 
@@ -178,15 +196,25 @@ def _call(method: str, path: str, json_body: dict | None = None,
     return body
 
 
+@log_call
 def me() -> dict:
     """Trả về {plan, quota_used, quota_limit, quota_remaining, business, email}."""
     return _call("GET", "/me")
 
 
+@log_call
 def update_business(business: dict) -> dict:
     return _call("POST", "/business", {"business": business})
 
 
+@log_call
+def get_rates() -> dict:
+    """Tham số tính lương/BHXH/thuế hiện hành theo server (`{ok, source,
+    rates}`) — dùng bởi `modules.business.payroll`. Không trừ quota."""
+    return _call("GET", "/rates")
+
+
+@log_call
 def chat(message: str, file_name: str = "", file_type: str = "",
          business: dict | None = None, history: list | None = None,
          attachment: dict | None = None) -> dict:
@@ -206,6 +234,7 @@ def chat(message: str, file_name: str = "", file_type: str = "",
     })
 
 
+@log_call
 def extract_table(attachment: dict, message: str = "") -> dict:
     """Nhờ AI đọc PDF/ảnh (hóa đơn, hợp đồng, bảng biểu…) và trả về nội dung
     dạng bảng theo quy ước "--- Sheet: X ---" + CSV — cùng định dạng luồng
@@ -219,6 +248,7 @@ def extract_table(attachment: dict, message: str = "") -> dict:
     })
 
 
+@log_call
 def extract_text(attachment: dict, message: str = "") -> dict:
     """Nhờ AI đọc (OCR) toàn bộ chữ trong ảnh chụp tài liệu, trả về văn bản
     THUẦN giữ đúng cách ngắt đoạn gốc — khác `extract_table` (chỉ dành cho dữ
@@ -231,6 +261,7 @@ def extract_text(attachment: dict, message: str = "") -> dict:
     })
 
 
+@log_call
 def edit_file(message: str, file_name: str, file_type: str,
               outline: str = "", history: list | None = None,
               attachment: dict | None = None) -> dict:

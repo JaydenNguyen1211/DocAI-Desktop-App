@@ -11,9 +11,14 @@ from ...account.server_config import is_configured
 from ..constants import APP_NAME, APP_TAGLINE
 from ..thread_worker import CallWorker
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+@log_call
 def detect_ms_word() -> bool:
     """Kiểm tra máy có đăng ký Word COM không (đọc registry, chỉ có ý nghĩa trên Windows)."""
     try:
@@ -24,6 +29,7 @@ def detect_ms_word() -> bool:
         return False
 
 
+@log_call
 def detect_office_engine() -> tuple[str, str]:
     """Phát hiện engine Office phù hợp với platform hiện tại.
 
@@ -62,6 +68,7 @@ def detect_office_engine() -> tuple[str, str]:
 
 
 class SplashWindow(QWidget):
+    @log_call
     def __init__(self, on_activated):
         super().__init__()
         self._on_activated = on_activated
@@ -74,6 +81,7 @@ class SplashWindow(QWidget):
 
     # ── UI ─────────────────────────────────────────────────────────────────
 
+    @log_call
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(80, 50, 80, 50)
@@ -158,6 +166,7 @@ class SplashWindow(QWidget):
                 "Chưa cấu hình server: điền FIREBASE_API_KEY và API_BASE_URL "
                 "trong server_config.py (hoặc config.json).")
 
+    @log_call
     def _toggle_mode(self):
         self._mode = "signup" if self._mode == "login" else "login"
         if self._mode == "signup":
@@ -172,6 +181,7 @@ class SplashWindow(QWidget):
 
     # ── Kiểm tra Office engine ───────────────────────────────────────────────
 
+    @log_call
     def _check_word(self):
         engine, msg = detect_office_engine()
         from ...account.config import load_config, save_config
@@ -182,10 +192,12 @@ class SplashWindow(QWidget):
 
     # ── Đăng nhập / Đăng ký ──────────────────────────────────────────────────
 
+    @log_call
     def _show_error(self, msg: str):
         self.error_lbl.setText(msg)
         self.error_lbl.setVisible(True)
 
+    @log_call
     def _set_busy(self, busy: bool):
         self.submit_btn.setEnabled(not busy)
         self.switch_btn.setEnabled(not busy)
@@ -198,6 +210,7 @@ class SplashWindow(QWidget):
             self.submit_btn.setText(
                 "Đăng nhập" if self._mode == "login" else "Đăng ký")
 
+    @log_call
     def _submit(self):
         email = self.email_input.text().strip()
         password = self.pw_input.text()
@@ -216,11 +229,13 @@ class SplashWindow(QWidget):
         self._worker.err.connect(self._on_error)
         self._worker.start()
 
+    @log_call
     def _on_success(self, _result):
         self._set_busy(False)
         self._on_activated()
         self.close()
 
+    @log_call
     def _on_error(self, message: str):
         self._set_busy(False)
         self._show_error(message)

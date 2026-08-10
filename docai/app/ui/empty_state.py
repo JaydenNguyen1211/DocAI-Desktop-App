@@ -7,6 +7,10 @@ from PySide6.QtWidgets import (
 from ..constants import EMPTY_CHIPS, FILE_DIALOG_FILTER, EXT_MAP
 from .icons import paperclip_icon, send_icon, diamond_icon
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class CentralChat(QFrame):
     """Trạng thái 1 — chưa có file. Ô chat trung tâm + chip gợi ý + đính kèm."""
@@ -14,6 +18,7 @@ class CentralChat(QFrame):
     message_sent = Signal(str)   # gõ lệnh / bấm chip → bắt đầu trò chuyện
     file_chosen = Signal(str)    # đính kèm / kéo-thả file → vào workspace
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("centralChat")
@@ -115,6 +120,7 @@ class CentralChat(QFrame):
 
     # ── Gửi / đính kèm ─────────────────────────────────────────────────────────
 
+    @log_call
     def _submit(self):
         text = self.input_box.text().strip()
         if not text:
@@ -122,6 +128,7 @@ class CentralChat(QFrame):
         self.input_box.clear()
         self.message_sent.emit(text)
 
+    @log_call
     def _pick_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Chọn file", "", FILE_DIALOG_FILTER)
@@ -130,11 +137,13 @@ class CentralChat(QFrame):
 
     # ── Kéo-thả file vào màn hình chat ─────────────────────────────────────────
 
+    @log_call
     def _set_drag_over(self, on: bool):
         self._input_card.setProperty("dragOver", "true" if on else "false")
         self._input_card.style().unpolish(self._input_card)
         self._input_card.style().polish(self._input_card)
 
+    @log_call
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             path = event.mimeData().urls()[0].toLocalFile()
@@ -144,9 +153,11 @@ class CentralChat(QFrame):
                 return
         event.ignore()
 
+    @log_call
     def dragLeaveEvent(self, event):
         self._set_drag_over(False)
 
+    @log_call
     def dropEvent(self, event):
         self._set_drag_over(False)
         for url in event.mimeData().urls():

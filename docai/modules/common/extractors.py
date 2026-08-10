@@ -4,31 +4,40 @@ import os
 
 from .models import AttachedFile
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 try:
     from docx import Document as DocxDocument
     HAS_DOCX = True
 except ImportError:
+    logger.debug("python-docx not installed — extract_word() unavailable.")
     HAS_DOCX = False
 
 try:
     import openpyxl
     HAS_XLSX = True
 except ImportError:
+    logger.debug("openpyxl not installed — extract_excel() unavailable.")
     HAS_XLSX = False
 
 try:
     import fitz
     HAS_PDF_TEXT = True
 except ImportError:
+    logger.debug("pymupdf (fitz) not installed — PDF text extraction unavailable.")
     HAS_PDF_TEXT = False
 
 try:
     from pptx import Presentation
     HAS_PPTX = True
 except ImportError:
+    logger.debug("python-pptx not installed — extract_pptx() unavailable.")
     HAS_PPTX = False
 
 
+@log_call
 def extract_word(path: str) -> AttachedFile:
     doc = DocxDocument(path)
     lines = []
@@ -50,6 +59,7 @@ def extract_word(path: str) -> AttachedFile:
                         file_type="word", claude_content="\n".join(lines))
 
 
+@log_call
 def extract_excel(path: str) -> AttachedFile:
     wb = openpyxl.load_workbook(path, data_only=True)
     parts = []
@@ -67,6 +77,7 @@ def extract_excel(path: str) -> AttachedFile:
                         file_type="excel", claude_content="\n".join(parts))
 
 
+@log_call
 def extract_pptx(path: str) -> AttachedFile:
     prs = Presentation(path)
     parts = []
@@ -87,6 +98,7 @@ def extract_pptx(path: str) -> AttachedFile:
                         file_type="ppt", claude_content="\n".join(parts))
 
 
+@log_call
 def pdf_page_texts(path: str) -> list[str]:
     """Văn bản từng trang PDF (rỗng nếu trang không có lớp chữ — VD PDF quét
     ảnh thuần túy). Dùng cho tính năng "Trích xuất toàn bộ văn bản" (cục bộ,
@@ -98,6 +110,7 @@ def pdf_page_texts(path: str) -> list[str]:
         doc.close()
 
 
+@log_call
 def extract_pdf(path: str) -> AttachedFile:
     pages = pdf_page_texts(path)
     parts = []

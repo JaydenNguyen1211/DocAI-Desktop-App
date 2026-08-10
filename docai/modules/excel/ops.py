@@ -20,6 +20,10 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.utils.cell import coordinate_from_string, range_boundaries
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class ExcelOpError(Exception):
     """Lệnh sửa không hợp lệ — thông báo tiếng Việt cho người dùng."""
@@ -68,6 +72,7 @@ _CELL_TRUNC = 40
 
 # ── Tiện ích chung ───────────────────────────────────────────────────────────
 
+@log_call
 def _need(edit: dict, key: str):
     val = edit.get(key)
     if val is None or (isinstance(val, str) and not val.strip()):
@@ -75,11 +80,13 @@ def _need(edit: dict, key: str):
     return val
 
 
+@log_call
 def _short(text, limit: int = 40) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+@log_call
 def _sheet_at(wb, edit: dict):
     name = edit.get("sheet")
     if not name:
@@ -91,6 +98,7 @@ def _sheet_at(wb, edit: dict):
     return wb[name]
 
 
+@log_call
 def _parse_cell(value) -> tuple:
     try:
         col, row = coordinate_from_string(str(value).strip().upper())
@@ -99,17 +107,20 @@ def _parse_cell(value) -> tuple:
         raise ExcelOpError(f"Ô không hợp lệ: {value}.")
 
 
+@log_call
 def _range_bounds(edit: dict, key: str = "range"):
     value = _need(edit, key)
     try:
         min_col, min_row, max_col, max_row = range_boundaries(str(value).strip().upper())
     except Exception:
+        logger.debug("range_boundaries() failed to parse %r", value, exc_info=True)
         min_col = None
     if min_col is None:
         raise ExcelOpError(f"Vùng không hợp lệ: {value}.")
     return min_col, min_row, max_col, max_row
 
 
+@log_call
 def _col_index_in_range(min_col: int, max_col: int, col_ref) -> int:
     """column trong keys/filter_range: số nguyên = offset 0-based trong vùng,
     chuỗi = chữ cột tuyệt đối (VD "C")."""
@@ -123,6 +134,7 @@ def _col_index_in_range(min_col: int, max_col: int, col_ref) -> int:
     return idx
 
 
+@log_call
 def _clean_argb(color) -> str:
     hex_color = str(color).strip().lstrip("#").upper()
     if len(hex_color) != 6 or any(ch not in "0123456789ABCDEF" for ch in hex_color):
@@ -132,6 +144,7 @@ def _clean_argb(color) -> str:
 
 # ── Đọc cấu trúc ───────────────────────────────────────────────────────────
 
+@log_call
 def _cell_preview(value) -> str:
     if value is None:
         return ""
@@ -139,16 +152,18 @@ def _cell_preview(value) -> str:
     return text if len(text) <= _CELL_TRUNC else text[:_CELL_TRUNC] + "…"
 
 
+@log_call
 def _chart_title(chart):
     try:
         if chart.title and chart.title.tx and chart.title.tx.rich:
             parts = [run.t for para in chart.title.tx.rich.p for run in (para.r or []) if run.t]
             return " ".join(parts) or None
     except Exception:
-        pass
+        logger.debug("Could not read chart title from rich-text structure.", exc_info=True)
     return None
 
 
+@log_call
 def outline(path: str) -> dict:
     """Cấu trúc bảng tính để gửi lên server làm ngữ cảnh cho Claude."""
     wb = openpyxl.load_workbook(path, data_only=False)
@@ -180,6 +195,7 @@ def outline(path: str) -> dict:
     return {"sheets": sheets, "sheet_count": len(wb.worksheets)}
 
 
+@log_call
 def outline_text(path: str) -> str:
     """Outline dạng văn bản gọn cho prompt."""
     data = outline(path)
@@ -213,6 +229,7 @@ def outline_text(path: str) -> str:
 
 # ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
 
+@log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
     """Áp lần lượt các lệnh sửa lên file, lưu một lần. Trả về mô tả từng lệnh."""
     if not edits:
@@ -235,6 +252,7 @@ def apply_edits(path: str, edits: list[dict]) -> list[str]:
     return notes
 
 
+@log_call
 def _run_op(wb, op: str, edit: dict) -> str:
     if op == "add_sheet":
         return _add_sheet(wb, edit)
@@ -284,6 +302,7 @@ def _run_op(wb, op: str, edit: dict) -> str:
 
 # ── Ô & vùng — nội dung cơ bản ───────────────────────────────────────────────
 
+@log_call
 def _set_cell(ws, edit: dict) -> str:
     cell_ref = _need(edit, "cell")
     col, row = _parse_cell(cell_ref)
@@ -295,6 +314,7 @@ def _set_cell(ws, edit: dict) -> str:
     return f"đặt {kind} «{_short(value)}» vào ô {col}{row} ở sheet «{ws.title}»"
 
 
+@log_call
 def _fill_range(ws, edit: dict) -> str:
     start = _need(edit, "start_cell")
     col0, row0 = _parse_cell(start)
@@ -310,6 +330,7 @@ def _fill_range(ws, edit: dict) -> str:
     return f"điền dữ liệu {rows}×{cols} từ ô {start} ở sheet «{ws.title}»"
 
 
+@log_call
 def _append_row(ws, edit: dict) -> str:
     values = edit.get("values")
     if not isinstance(values, list) or not values:
@@ -319,6 +340,7 @@ def _append_row(ws, edit: dict) -> str:
     return f"thêm dòng mới «{preview}» vào cuối sheet «{ws.title}»"
 
 
+@log_call
 def _insert_row(ws, edit: dict) -> str:
     index = int(_need(edit, "index"))
     count = int(edit.get("count") or 1)
@@ -328,6 +350,7 @@ def _insert_row(ws, edit: dict) -> str:
     return f"chèn {count} hàng mới tại vị trí {index} ở sheet «{ws.title}»"
 
 
+@log_call
 def _delete_row(ws, edit: dict) -> str:
     index = int(_need(edit, "index"))
     count = int(edit.get("count") or 1)
@@ -337,6 +360,7 @@ def _delete_row(ws, edit: dict) -> str:
     return f"xóa {count} hàng từ vị trí {index} ở sheet «{ws.title}»"
 
 
+@log_call
 def _insert_column(ws, edit: dict) -> str:
     index = _col_index_value(_need(edit, "index"))
     count = int(edit.get("count") or 1)
@@ -346,6 +370,7 @@ def _insert_column(ws, edit: dict) -> str:
     return f"chèn {count} cột mới tại vị trí {get_column_letter(index)} ở sheet «{ws.title}»"
 
 
+@log_call
 def _delete_column(ws, edit: dict) -> str:
     index = _col_index_value(_need(edit, "index"))
     count = int(edit.get("count") or 1)
@@ -357,6 +382,7 @@ def _delete_column(ws, edit: dict) -> str:
     return f"xóa {count} cột từ vị trí {get_column_letter(index)} ở sheet «{ws.title}»"
 
 
+@log_call
 def _col_index_value(value) -> int:
     """index của insert_column/delete_column: số nguyên (1-based) hoặc chữ cột."""
     if isinstance(value, int):
@@ -372,6 +398,7 @@ def _col_index_value(value) -> int:
 
 # ── Định dạng ────────────────────────────────────────────────────────────────
 
+@log_call
 def _format_cells(ws, edit: dict) -> str:
     min_col, min_row, max_col, max_row = _range_bounds(edit)
     changes = []
@@ -476,6 +503,7 @@ def _format_cells(ws, edit: dict) -> str:
     return f"định dạng {scope} ở sheet «{ws.title}»: {', '.join(changes)}"
 
 
+@log_call
 def _merge_cells(ws, edit: dict) -> str:
     rng = _need(edit, "range")
     try:
@@ -485,6 +513,7 @@ def _merge_cells(ws, edit: dict) -> str:
     return f"gộp ô {rng} ở sheet «{ws.title}»"
 
 
+@log_call
 def _unmerge_cells(ws, edit: dict) -> str:
     rng = _need(edit, "range")
     try:
@@ -496,6 +525,7 @@ def _unmerge_cells(ws, edit: dict) -> str:
 
 # ── Bảng, sắp xếp, lọc ───────────────────────────────────────────────────────
 
+@log_call
 def _sanitize_table_name(name, wb) -> str:
     name = re.sub(r"[^A-Za-z0-9_]", "_", str(name).strip())
     if not name or not name[0].isalpha():
@@ -508,6 +538,7 @@ def _sanitize_table_name(name, wb) -> str:
     return name
 
 
+@log_call
 def _create_table(ws, wb, edit: dict) -> str:
     rng = _need(edit, "range")
     name = _sanitize_table_name(edit.get("name") or f"Table_{ws.title}", wb)
@@ -523,6 +554,7 @@ def _create_table(ws, wb, edit: dict) -> str:
     return f"chuyển vùng {rng} thành bảng «{name}» (có header + lọc) ở sheet «{ws.title}»"
 
 
+@log_call
 def _cell_overlaps_merge(ws, min_row, max_row, min_col, max_col) -> bool:
     for mrng in ws.merged_cells.ranges:
         if not (mrng.max_row < min_row or mrng.min_row > max_row
@@ -531,6 +563,7 @@ def _cell_overlaps_merge(ws, min_row, max_row, min_col, max_col) -> bool:
     return False
 
 
+@log_call
 def _sort_key(value):
     if value is None:
         return (0, "")
@@ -539,6 +572,7 @@ def _sort_key(value):
     return (2, str(value).lower())
 
 
+@log_call
 def _sort_range(ws, edit: dict) -> str:
     min_col, min_row, max_col, max_row = _range_bounds(edit)
     has_header = True if edit.get("has_header") is None else bool(edit["has_header"])
@@ -606,10 +640,12 @@ def _sort_range(ws, edit: dict) -> str:
     return f"sắp xếp {rng} ở sheet «{ws.title}» theo {desc_txt}"
 
 
+@log_call
 def _norm_text(value) -> str:
     return str(value).strip().lower() if value is not None else ""
 
 
+@log_call
 def _as_number(value):
     try:
         return float(value)
@@ -617,6 +653,7 @@ def _as_number(value):
         return None
 
 
+@log_call
 def _filter_match(condition: str, value, target) -> bool:
     if condition == "equals":
         return _norm_text(value) == _norm_text(target)
@@ -651,6 +688,7 @@ _FILTER_CONDITIONS = {
 }
 
 
+@log_call
 def _filter_range(ws, edit: dict) -> str:
     min_col, min_row, max_col, max_row = _range_bounds(edit)
     if max_row <= min_row:
@@ -677,6 +715,7 @@ def _filter_range(ws, edit: dict) -> str:
             f"{condition} «{target}» (ẩn {hidden_count} dòng không khớp)")
 
 
+@log_call
 def _clear_filter(ws, edit: dict) -> str:
     for row_dim in ws.row_dimensions.values():
         row_dim.hidden = False
@@ -686,6 +725,7 @@ def _clear_filter(ws, edit: dict) -> str:
 
 # ── Biểu đồ ──────────────────────────────────────────────────────────────────
 
+@log_call
 def _create_chart(ws, edit: dict) -> str:
     chart_type = str(_need(edit, "chart_type")).lower()
     cls = _CHART_CLASSES.get(chart_type)
@@ -718,6 +758,7 @@ def _create_chart(ws, edit: dict) -> str:
     return f"tạo biểu đồ {label}{title_txt} từ {data_range} ở sheet «{ws.title}»"
 
 
+@log_call
 def _delete_chart(ws, edit: dict) -> str:
     charts = ws._charts
     if not charts:
@@ -732,6 +773,7 @@ def _delete_chart(ws, edit: dict) -> str:
 
 # ── Sheet & freeze pane ──────────────────────────────────────────────────────
 
+@log_call
 def _add_sheet(wb, edit: dict) -> str:
     name = _need(edit, "name")
     if name in wb.sheetnames:
@@ -741,6 +783,7 @@ def _add_sheet(wb, edit: dict) -> str:
     return f"thêm sheet mới «{ws.title}»"
 
 
+@log_call
 def _delete_sheet(wb, edit: dict) -> str:
     name = _need(edit, "sheet")
     if name not in wb.sheetnames:
@@ -751,6 +794,7 @@ def _delete_sheet(wb, edit: dict) -> str:
     return f"xóa sheet «{name}»"
 
 
+@log_call
 def _rename_sheet(wb, edit: dict) -> str:
     name = _need(edit, "sheet")
     new_name = _need(edit, "new_name")
@@ -766,6 +810,7 @@ def _rename_sheet(wb, edit: dict) -> str:
     return f"đổi tên sheet «{name}» thành «{ws.title}»"
 
 
+@log_call
 def _freeze_panes(ws, edit: dict) -> str:
     if edit.get("unfreeze"):
         ws.freeze_panes = None

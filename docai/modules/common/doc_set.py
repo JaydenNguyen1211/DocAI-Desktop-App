@@ -30,6 +30,10 @@ from . import extractors
 from .creators import create_excel_from_text
 from .models import AttachedFile
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 TASK_COMPARE = "compare"
 TASK_RECONCILE = "reconcile"
 TASK_MERGE = "merge"
@@ -53,6 +57,7 @@ _MAX_CHARS_PER_FILE = 6000
 class DocSetError(api_client.ApiError):
     """Không xử lý được bộ file — thông báo tiếng Việt cho người dùng."""
 
+    @log_call
     def __init__(self, message: str):
         super().__init__(message, "doc_set_failed")
 
@@ -78,6 +83,7 @@ _RE_COMPARE = re.compile(r"so sánh|khác biệt|khác nhau|\bcompare\b", re.IGN
 _RE_EXTRACT = re.compile(r"trích xuất|tổng hợp|\bextract\b", re.IGNORECASE)
 
 
+@log_call
 def _classify(user_request: str, paths: list[str]) -> str:
     text = user_request or ""
     families = {_FAMILY_BY_EXT.get(os.path.splitext(p)[1].lower()) for p in paths}
@@ -131,6 +137,7 @@ class ResolveResult:
     suggestions: list[str] = field(default_factory=list)  # tên file gợi ý (chip)
 
 
+@log_call
 def _name_mentioned(text_words: set[str], path: str, threshold: float = 0.6) -> bool:
     """So khớp theo tỉ lệ trùng TỪ (word-overlap), không phải substring cứng —
     tên file dạng "HopDong_LoHangT6.docx" (tách được "hop dong lo hang t6")
@@ -142,6 +149,7 @@ def _name_mentioned(text_words: set[str], path: str, threshold: float = 0.6) -> 
     return len(stem_words & text_words) / len(stem_words) >= threshold
 
 
+@log_call
 def resolve_input_files(user_request: str, attached: list[str], recent_outputs: list[str],
                         folder_files: list[str]) -> ResolveResult:
     text = user_request or ""
@@ -195,6 +203,7 @@ def resolve_input_files(user_request: str, attached: list[str], recent_outputs: 
 
 # ── Trích xuất nội dung mọi loại file ────────────────────────────────────────
 
+@log_call
 def _extract_one(path: str) -> AttachedFile:
     ext = os.path.splitext(path)[1].lower()
     family = _FAMILY_BY_EXT.get(ext)
@@ -214,6 +223,7 @@ def _extract_one(path: str) -> AttachedFile:
     raise DocSetError(f"Định dạng chưa hỗ trợ: {ext or path}")
 
 
+@log_call
 def _extract_all(paths: list[str]) -> tuple[list[AttachedFile], list[str]]:
     """Đọc nội dung từng file — 1 file lỗi (định dạng lạ, hỏng…) KHÔNG làm hỏng
     cả lô, đặc biệt quan trọng khi input là "cả thư mục" (VD file .xml hóa đơn
@@ -225,10 +235,13 @@ def _extract_all(paths: list[str]) -> tuple[list[AttachedFile], list[str]]:
         try:
             files.append(_extract_one(path))
         except DocSetError as exc:
+            logger.warning("Skipping file in batch extract: path=%s reason=%s",
+                           path, exc.message)
             skipped.append(f"{os.path.basename(path)} ({exc.message})")
     return files, skipped
 
 
+@log_call
 def _ocr_pdf(path: str) -> AttachedFile:
     """PDF quét ảnh (không có lớp chữ) — nhờ AI đọc qua Vision. Tốn 1 tác vụ AI."""
     import base64
@@ -244,6 +257,7 @@ def _ocr_pdf(path: str) -> AttachedFile:
         claude_content=text or "(không đọc được nội dung — PDF quét ảnh chất lượng thấp)")
 
 
+@log_call
 def _ocr_image(path: str) -> AttachedFile:
     """Tốn 1 tác vụ AI / ảnh — không có cách nào đọc chữ trong ảnh cục bộ."""
     data_b64, media_type = image_ops.b64_for_vision(path)
@@ -255,6 +269,7 @@ def _ocr_image(path: str) -> AttachedFile:
         claude_content=text or "(không đọc được nội dung ảnh)")
 
 
+@log_call
 def _combine_for_prompt(files: list[AttachedFile]) -> str:
     parts = []
     for index, attached in enumerate(files, start=1):
@@ -265,16 +280,19 @@ def _combine_for_prompt(files: list[AttachedFile]) -> str:
     return "\n\n".join(parts)
 
 
+@log_call
 def _staging_dir() -> str:
     out_dir = os.path.join(tempfile.gettempdir(), "DocAI", "staging")
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
 
+@log_call
 def _stamp() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 
+@log_call
 def _quota_of(result: dict) -> dict:
     """`plan`/`quota_remaining` từ 1 response server — để UI cập nhật nhãn quota
     giống hệt luồng chat/edit thường (server trả trạng thái quota hiện tại,
@@ -297,6 +315,7 @@ _SEARCH_TRAIL_RE = re.compile(
     re.IGNORECASE)
 
 
+@log_call
 def _extract_search_keyword(user_request: str) -> str:
     text = (user_request or "").strip()
     quoted = _QUOTE_RE.search(text)
@@ -307,6 +326,7 @@ def _extract_search_keyword(user_request: str) -> str:
     return cleaned.strip()
 
 
+@log_call
 def _find_snippets(content: str, keyword: str, context: int = 40) -> list[str]:
     if not keyword or not content:
         return []
@@ -325,6 +345,7 @@ def _find_snippets(content: str, keyword: str, context: int = 40) -> list[str]:
     return out
 
 
+@log_call
 def _handle_search(files: list[AttachedFile], user_request: str) -> DocSetResult:
     keyword = _extract_search_keyword(user_request)
     if not keyword:
@@ -363,6 +384,7 @@ _STOPWORDS = {"giay", "to", "ho", "so", "va", "cac", "mot", "cho", "cua", "theo"
 _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
+@log_call
 def _norm(text: str) -> str:
     """Chuẩn hóa để so khớp: tách camelCase (VD "HopDong" → "Hop Dong" — tên
     file thường ghép kiểu này, không có dấu cách/gạch dưới giữa các từ), bỏ
@@ -375,6 +397,7 @@ def _norm(text: str) -> str:
     return text
 
 
+@log_call
 def _infer_checklist(user_request: str, file_names: list[str]) -> list[str]:
     prompt = (
         "Người dùng muốn rà soát một bộ hồ sơ xem còn thiếu giấy tờ gì.\n"
@@ -386,12 +409,15 @@ def _infer_checklist(user_request: str, file_names: list[str]) -> list[str]:
     try:
         result = api_client.chat(prompt)
     except api_client.ApiError:
+        logger.warning("Checklist inference AI call failed — falling back to empty checklist",
+                       exc_info=True)
         return []
     text = (result.get("text") or "").strip()
     items = [line.strip("-•* \t") for line in text.splitlines() if line.strip()]
     return items[:15]
 
 
+@log_call
 def _match_checklist_item(item: str, files: list[AttachedFile]) -> AttachedFile | None:
     item_words = {w for w in _norm(item).split() if len(w) > 2 and w not in _STOPWORDS}
     if not item_words:
@@ -406,6 +432,7 @@ def _match_checklist_item(item: str, files: list[AttachedFile]) -> AttachedFile 
     return best_file if best_score >= 0.5 else None
 
 
+@log_call
 def _handle_checklist(files: list[AttachedFile], user_request: str,
                        checklist: list[str] | None) -> DocSetResult:
     items = checklist or _infer_checklist(user_request, [attached.name for attached in files])
@@ -434,6 +461,7 @@ def _handle_checklist(files: list[AttachedFile], user_request: str,
 
 # ── So sánh / đối chiếu (AI phân tích, chỉ trả text — không sinh file) ──────
 
+@log_call
 def _handle_compare(files: list[AttachedFile], user_request: str, task: str) -> DocSetResult:
     combined = _combine_for_prompt(files)
     if task == TASK_RECONCILE:
@@ -459,6 +487,7 @@ def _handle_compare(files: list[AttachedFile], user_request: str, task: str) -> 
 _SHEET_BLOCK_RE = re.compile(r'(---\s*Sheet:.*)', re.DOTALL | re.IGNORECASE)
 
 
+@log_call
 def _split_sheet_block(text: str) -> tuple[str, str]:
     """Trả về (phần_phân_tích_trước_bảng, khối_bảng_CSV) — khối bảng rỗng nếu
     AI không trả đúng định dạng "--- Sheet: X ---"."""
@@ -468,6 +497,7 @@ def _split_sheet_block(text: str) -> tuple[str, str]:
     return text[:match.start()].strip(), match.group(1).strip()
 
 
+@log_call
 def _handle_extract_merge(user_request: str, files: list[AttachedFile]) -> DocSetResult:
     combined = _combine_for_prompt(files)
     prompt = (
@@ -502,6 +532,7 @@ def _handle_extract_merge(user_request: str, files: list[AttachedFile]) -> DocSe
 
 # ── Gộp file cùng định dạng (cục bộ, không gọi AI) ──────────────────────────
 
+@log_call
 def _merge_word(paths: list[str], out_path: str) -> str:
     from docx import Document as DocxDocument
     merged = DocxDocument()
@@ -522,6 +553,7 @@ def _merge_word(paths: list[str], out_path: str) -> str:
     return out_path
 
 
+@log_call
 def _merge_excel(paths: list[str], out_path: str) -> str:
     import openpyxl
     dst = openpyxl.Workbook()
@@ -545,6 +577,7 @@ def _merge_excel(paths: list[str], out_path: str) -> str:
     return out_path
 
 
+@log_call
 def _merge_pdf(paths: list[str], out_path: str) -> str:
     import fitz
     merged = fitz.open()
@@ -562,6 +595,7 @@ _MERGE_BUILDERS = {"word": _merge_word, "excel": _merge_excel, "pdf": _merge_pdf
 _MERGE_EXT = {"word": ".docx", "excel": ".xlsx", "pdf": ".pdf"}
 
 
+@log_call
 def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
     families = {_FAMILY_BY_EXT.get(os.path.splitext(p)[1].lower()) for p in paths}
     if len(families) != 1 or None in families:
@@ -599,6 +633,7 @@ def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
 
 # ── Ngoài phạm vi 6 tác vụ trên → chuyển cho chat() xử lý chung ─────────────
 
+@log_call
 def _handle_general(files: list[AttachedFile], user_request: str,
                     history: list | None, business: dict | None) -> DocSetResult:
     combined = _combine_for_prompt(files)
@@ -613,6 +648,7 @@ def _handle_general(files: list[AttachedFile], user_request: str,
 
 # ── Điểm vào chính ───────────────────────────────────────────────────────────
 
+@log_call
 def process_document_set(paths: list[str], user_request: str,
                          checklist: list[str] | None = None,
                          history: list | None = None,

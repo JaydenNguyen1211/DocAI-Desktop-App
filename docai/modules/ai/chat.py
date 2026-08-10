@@ -8,6 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class MockReply:
@@ -20,6 +24,7 @@ class MockReply:
 _EDIT_WORDS = ("sửa", "chỉnh", "thay", "đổi", "thêm", "xóa", "xoá", "cập nhật", "viết lại")
 
 
+@log_call
 def classify_intent(user_text: str, file_name: Optional[str],
                     file_type: Optional[str]) -> tuple[Optional[str], bool]:
     """Suy ra (tên file kết quả, có phải yêu cầu chỉnh sửa) từ câu lệnh.
@@ -44,6 +49,7 @@ def classify_intent(user_text: str, file_name: Optional[str],
     return artifact, is_edit
 
 
+@log_call
 def build_reply(user_text: str, file_name: Optional[str],
                 file_type: Optional[str], business: dict) -> MockReply:
     low = user_text.lower()
@@ -133,6 +139,7 @@ def build_reply(user_text: str, file_name: Optional[str],
     )
 
 
+@log_call
 def suggest_save_name(file_name: str) -> str:
     path = Path(file_name)
     return f"{path.stem}_ban_sao{path.suffix}"

@@ -9,6 +9,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class MsOfficeMacError(Exception):
     pass
@@ -21,11 +25,13 @@ _APP_PATHS = {
 }
 
 
+@log_call
 def is_available(app: str) -> bool:
     """Return True if the given Office app ('word'|'excel'|'powerpoint') is installed."""
     return os.path.isdir(_APP_PATHS.get(app, ""))
 
 
+@log_call
 def _run_applescript(script: str, timeout: int = 90) -> None:
     proc = subprocess.run(
         ["osascript", "-e", script],
@@ -36,6 +42,7 @@ def _run_applescript(script: str, timeout: int = 90) -> None:
         raise MsOfficeMacError(detail or "AppleScript thất bại không rõ nguyên nhân.")
 
 
+@log_call
 def _safe_path(path: str) -> str:
     if '"' in path:
         raise MsOfficeMacError(
@@ -44,6 +51,7 @@ def _safe_path(path: str) -> str:
     return path
 
 
+@log_call
 def _home_tmp() -> str:
     """Return a temp dir inside the user home — accessible to Office apps (not /tmp)."""
     cache = Path.home() / "Library" / "Caches" / "docai_office_tmp"
@@ -51,6 +59,7 @@ def _home_tmp() -> str:
     return tempfile.mkdtemp(dir=cache)
 
 
+@log_call
 def _with_accessible_paths(input_path: str, out_path: str, fn) -> None:
     """Run fn(src, dst). If either path is outside the user home, stage via a
     temp dir inside ~/Library/Caches so Word/Excel/PowerPoint can access them."""
@@ -73,6 +82,7 @@ def _with_accessible_paths(input_path: str, out_path: str, fn) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+@log_call
 def word_to_pdf(input_path: str, out_path: str) -> None:
     """Convert .docx → PDF using docx2pdf (wraps Microsoft Word on macOS)."""
     try:
@@ -87,6 +97,7 @@ def word_to_pdf(input_path: str, out_path: str) -> None:
         raise MsOfficeMacError(f"docx2pdf thất bại: {exc}")
 
 
+@log_call
 def excel_to_pdf(input_path: str, out_path: str) -> None:
     def _convert(src: str, dst: str) -> None:
         script = (
@@ -102,6 +113,7 @@ def excel_to_pdf(input_path: str, out_path: str) -> None:
     _with_accessible_paths(input_path, out_path, _convert)
 
 
+@log_call
 def powerpoint_to_pdf(input_path: str, out_path: str) -> None:
     def _convert(src: str, dst: str) -> None:
         script = (

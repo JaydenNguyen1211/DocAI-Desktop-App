@@ -7,8 +7,13 @@ from PySide6.QtWidgets import (
 
 from .icons import paperclip_icon, send_icon
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class _Bubble(QLabel):
+    @log_call
     def __init__(self, text: str, css_class: str):
         super().__init__(text)
         self.setProperty("class", css_class)
@@ -22,6 +27,7 @@ class ChatPanel(QFrame):
     file_card_clicked = Signal(str)
     attach_requested = Signal()
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("chatPanel")
@@ -99,6 +105,7 @@ class ChatPanel(QFrame):
 
     # ── Gửi tin ───────────────────────────────────────────────────────────────
 
+    @log_call
     def _submit(self):
         text = self.input_box.text().strip()
         if not text:
@@ -106,14 +113,17 @@ class ChatPanel(QFrame):
         self.input_box.clear()
         self.message_sent.emit(text)
 
+    @log_call
     def send_text(self, text: str):
         """Gửi hộ (chip click)."""
         self.message_sent.emit(text)
 
+    @log_call
     def set_enabled(self, on: bool):
         self.input_box.setEnabled(on)
         self.send_btn.setEnabled(on)
 
+    @log_call
     def clear(self):
         """Xóa toàn bộ hội thoại — dùng khi bắt đầu trò chuyện mới."""
         self._stream_bubble = None
@@ -132,6 +142,7 @@ class ChatPanel(QFrame):
 
     # ── Chips ─────────────────────────────────────────────────────────────────
 
+    @log_call
     def set_chips(self, labels: list[str]):
         while self._chips_lay.count() > 1:
             item = self._chips_lay.takeAt(0)
@@ -146,6 +157,7 @@ class ChatPanel(QFrame):
 
     # ── Thêm bong bóng ────────────────────────────────────────────────────────
 
+    @log_call
     def _add_row(self, widget, align_right: bool):
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -158,6 +170,7 @@ class ChatPanel(QFrame):
         self._msg_lay.insertLayout(self._msg_lay.count() - 1, row)
         self._scroll_to_bottom()
 
+    @log_call
     def add_widget_row(self, widget, full_width: bool = True):
         """Chèn 1 widget tuỳ ý vào luồng hội thoại (thẻ chọn loại file, thẻ
         cảnh báo…) — dùng cho các bước của luồng "Tạo tài liệu mới bằng chat"."""
@@ -167,14 +180,17 @@ class ChatPanel(QFrame):
         else:
             self._add_row(widget, align_right=False)
 
+    @log_call
     def add_user(self, text: str):
         self._add_row(_Bubble(text, "bubbleUser"), align_right=True)
 
+    @log_call
     def add_ai(self, text: str):
         """Bong bóng AI tĩnh (không streaming) — dùng cho các câu dẫn ngắn
         trước thẻ chọn loại file / thẻ gợi ý, khi không cần hiệu ứng gõ chữ."""
         self._add_row(_Bubble(text, "bubbleAI"), align_right=False)
 
+    @log_call
     def add_system(self, text: str):
         lbl = QLabel(text)
         lbl.setProperty("class", "bubbleSystem")
@@ -183,6 +199,7 @@ class ChatPanel(QFrame):
         self._msg_lay.insertWidget(self._msg_lay.count() - 1, lbl)
         self._scroll_to_bottom()
 
+    @log_call
     def add_file_card(self, file_name: str, badge: str = "XLS", note: str = "",
                       full_path: str | None = None):
         """`full_path` (tùy chọn): đường dẫn thật để mở khi bấm vào thẻ — nhãn
@@ -197,18 +214,22 @@ class ChatPanel(QFrame):
 
     # ── Streaming AI ──────────────────────────────────────────────────────────
 
+    @log_call
     def start_ai(self):
         self._stream_bubble = _Bubble("…", "bubbleAI")
         self._add_row(self._stream_bubble, align_right=False)
 
+    @log_call
     def stream_ai(self, text_so_far: str):
         if self._stream_bubble:
             self._stream_bubble.setText(text_so_far)
             self._scroll_to_bottom()
 
+    @log_call
     def end_ai(self):
         self._stream_bubble = None
 
+    @log_call
     def _scroll_to_bottom(self):
         QTimer.singleShot(0, lambda: self._scroll.verticalScrollBar().setValue(
             self._scroll.verticalScrollBar().maximum()))

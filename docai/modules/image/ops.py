@@ -11,6 +11,10 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _VISION_MAX_EDGE = 2000  # px — dưới ngưỡng high-res 2576px của Claude, vẫn đủ nét để đọc chữ
 _VISION_MEDIA_TYPE = {"JPEG": "image/jpeg", "PNG": "image/png"}
 
@@ -25,6 +29,7 @@ OPS = ("rotate", "crop", "resize", "compress")
 
 # ── Chuẩn bị ảnh gửi Claude Vision ───────────────────────────────────────────
 
+@log_call
 def prepare_for_vision(path: str) -> tuple[bytes, str]:
     """Trả về (bytes, media_type) đã tự chỉnh — xoay đúng chiều theo EXIF, tăng
     tương phản nhẹ, giới hạn cạnh dài — dùng trước khi gửi ảnh lên Claude."""
@@ -48,6 +53,7 @@ def prepare_for_vision(path: str) -> tuple[bytes, str]:
     return buf.getvalue(), _VISION_MEDIA_TYPE[fmt]
 
 
+@log_call
 def b64_for_vision(path: str) -> tuple[str, str]:
     """Như prepare_for_vision() nhưng trả base64 sẵn để đưa vào JSON gửi server."""
     data, media_type = prepare_for_vision(path)
@@ -56,6 +62,7 @@ def b64_for_vision(path: str) -> tuple[str, str]:
 
 # ── Đọc cấu trúc ───────────────────────────────────────────────────────────
 
+@log_call
 def outline_text(path: str) -> str:
     img = Image.open(path)
     width, height = img.size
@@ -66,6 +73,7 @@ def outline_text(path: str) -> str:
 
 # ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
 
+@log_call
 def _need(edit: dict, key: str):
     val = edit.get(key)
     if val is None:
@@ -73,6 +81,7 @@ def _need(edit: dict, key: str):
     return val
 
 
+@log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
     """Áp lần lượt các lệnh sửa lên ảnh, lưu một lần. Trả về mô tả từng lệnh."""
     if not edits:
@@ -117,6 +126,7 @@ def apply_edits(path: str, edits: list[dict]) -> list[str]:
     return notes
 
 
+@log_call
 def _run_op(img: Image.Image, op: str, edit: dict):
     if op == "rotate":
         angle = float(_need(edit, "angle"))

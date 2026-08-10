@@ -11,11 +11,16 @@ lường trước.
 import os
 import sys
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class ExcelComError(Exception):
     """Không xuất được PDF — thông báo tiếng Việt cho người dùng."""
 
 
+@log_call
 def export_workbook_pdf(path: str, out_path: str) -> str:
     """Xuất toàn bộ workbook ra PDF.
 
@@ -67,16 +72,19 @@ def export_workbook_pdf(path: str, out_path: str) -> str:
             if wb is not None:
                 wb.Close(SaveChanges=False)
         except Exception:
-            pass
+            logger.debug("Failed to close Excel workbook cleanly after PDF export.",
+                         exc_info=True)
         try:
             if excel is not None:
                 excel.Quit()
         except Exception:
-            pass
+            logger.debug("Failed to quit Excel.Application cleanly after PDF export.",
+                         exc_info=True)
         pythoncom.CoUninitialize()
     return abs_out
 
 
+@log_call
 def export_all_charts(path: str, tmp_dir: str) -> dict:
     """Trả về {(tên_sheet, thứ_tự_chart_0_based): đường_dẫn_png}.
 
@@ -90,6 +98,7 @@ def export_all_charts(path: str, tmp_dir: str) -> dict:
         import pythoncom
         import win32com.client
     except ImportError:
+        logger.debug("pywin32 not available — export_all_charts() returns {} (placeholders used).")
         return {}
 
     abs_path = os.path.abspath(path)
@@ -107,6 +116,8 @@ def export_all_charts(path: str, tmp_dir: str) -> dict:
                 chart_objects = sheet.ChartObjects()
                 count = chart_objects.Count
             except Exception:
+                logger.warning("Could not enumerate chart objects on sheet %r — skipping.",
+                               getattr(sheet, "Name", "?"), exc_info=True)
                 continue
             for chart_number in range(1, count + 1):
                 try:
@@ -116,19 +127,25 @@ def export_all_charts(path: str, tmp_dir: str) -> dict:
                     chart.Export(png_path)
                     result[(sheet.Name, chart_number - 1)] = png_path
                 except Exception:
+                    logger.warning("Failed to export chart #%d on sheet %r — skipping.",
+                                   chart_number, getattr(sheet, "Name", "?"), exc_info=True)
                     continue
     except Exception:
+        logger.exception("export_all_charts failed for %s — returning {} (placeholders used).",
+                         abs_path)
         return {}
     finally:
         try:
             if wb is not None:
                 wb.Close(SaveChanges=False)
         except Exception:
-            pass
+            logger.debug("Failed to close Excel workbook cleanly after chart export.",
+                         exc_info=True)
         try:
             if excel is not None:
                 excel.Quit()
         except Exception:
-            pass
+            logger.debug("Failed to quit Excel.Application cleanly after chart export.",
+                         exc_info=True)
         pythoncom.CoUninitialize()
     return result

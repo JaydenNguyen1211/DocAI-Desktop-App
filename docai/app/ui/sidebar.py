@@ -16,6 +16,10 @@ from .icons import folder_icon
 from .folder_tree import FolderTree
 from .folder_scan import ScannedFile
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _MODE_FILE, _MODE_FOLDER = 0, 1
 _FOLDER_SCANNING, _FOLDER_READY = 1, 2
 
@@ -35,6 +39,7 @@ class RecentItem(QFrame):
     picked = Signal(str)
     remove_clicked = Signal(str)
 
+    @log_call
     def __init__(self, path: str, parent=None):
         super().__init__(parent)
         self._path = path
@@ -87,16 +92,19 @@ class RecentItem(QFrame):
             QFontMetrics(self._name.font()).elidedText(
                 path_obj.name, Qt.TextElideMode.ElideRight, 128))
 
+    @log_call
     def set_active(self, on: bool):
         self._active = on
         self.update()
 
+    @log_call
     def enterEvent(self, event):
         self._hover = True
         self._delete_btn.setVisible(True)
         self.update()
         super().enterEvent(event)
 
+    @log_call
     def leaveEvent(self, event):
         self._hover = False
         self._delete_btn.setVisible(False)
@@ -118,6 +126,7 @@ class RecentItem(QFrame):
             painter.end()
         super().paintEvent(event)
 
+    @log_call
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.picked.emit(self._path)
@@ -134,6 +143,7 @@ class Sidebar(QFrame):
     change_folder = Signal()           # bấm "Đổi" (đang quét / sẵn sàng)
     folder_file_removed = Signal(str)         # bấm xóa 1 file trong cây thư mục
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("sidebar")
@@ -206,12 +216,14 @@ class Sidebar(QFrame):
 
     # ── Chuyển đổi Tệp ⇄ Thư mục ──────────────────────────────────────────────
 
+    @log_call
     def _on_seg_clicked(self, mode: str):
         self._body_stack.setCurrentIndex(_MODE_FOLDER if mode == "folder" else _MODE_FILE)
         self.mode_changed.emit(mode)
 
     # ── Thân "Tệp": Trò chuyện mới + lịch sử gần đây ─────────────────────────
 
+    @log_call
     def _build_file_body(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -245,6 +257,7 @@ class Sidebar(QFrame):
 
     # ── Thân "Thư mục": trống → đang quét → sẵn sàng ─────────────────────────
 
+    @log_call
     def _build_folder_body(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -258,6 +271,7 @@ class Sidebar(QFrame):
         self._folder_stack.addWidget(self._build_folder_ready())
         return page
 
+    @log_call
     def _build_folder_empty(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -289,6 +303,7 @@ class Sidebar(QFrame):
         lay.addStretch()
         return page
 
+    @log_call
     def _build_folder_scanning(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -315,6 +330,7 @@ class Sidebar(QFrame):
         lay.addStretch(2)
         return page
 
+    @log_call
     def _build_folder_ready(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -340,6 +356,7 @@ class Sidebar(QFrame):
         lay.addWidget(footer)
         return page
 
+    @log_call
     def _make_path_badge(self, change_link: bool) -> tuple[QFrame, QLabel]:
         badge = QFrame()
         badge.setObjectName("folderPathBadge")
@@ -366,6 +383,7 @@ class Sidebar(QFrame):
 
     # ── Điều khiển từ MainWindow khi mở / quét thư mục ───────────────────────
 
+    @log_call
     def show_folder_scanning(self, folder_path: str):
         self._body_stack.setCurrentIndex(_MODE_FOLDER)
         self._folder_stack.setCurrentIndex(_FOLDER_SCANNING)
@@ -374,10 +392,12 @@ class Sidebar(QFrame):
                 folder_path, Qt.TextElideMode.ElideMiddle, 140))
         self._scan_status_lbl.setText("Đang quét thư mục…")
 
+    @log_call
     def update_folder_scan_progress(self, done: int, total: int):
         suffix = f" / {total}" if total else ""
         self._scan_status_lbl.setText(f"Đang quét thư mục…\n{done}{suffix} file")
 
+    @log_call
     def show_folder_ready(self, folder_name: str, files: list[ScannedFile], counts: dict):
         self._folder_stack.setCurrentIndex(_FOLDER_READY)
         self._ready_path_lbl.setText(
@@ -388,6 +408,7 @@ class Sidebar(QFrame):
 
     # ── Danh sách gần đây ───────────────────────────────────────────────────────
 
+    @log_call
     def refresh(self, recent_paths: list[str], active_path: str | None = None):
         while self._list_lay.count() > 1:
             item = self._list_lay.takeAt(0)
@@ -412,6 +433,7 @@ class Sidebar(QFrame):
 
     # ── Gói dịch vụ ─────────────────────────────────────────────────────────────
 
+    @log_call
     def set_plan(self, plan_label: str, remaining, limit):
         self._plan_name.setText(f"Gói {plan_label}")
         if remaining is None or limit is None:

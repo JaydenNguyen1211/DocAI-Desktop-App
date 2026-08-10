@@ -5,8 +5,13 @@ from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QButtonGroup,
 )
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 
 class _TypeCard(QPushButton):
+    @log_call
     def __init__(self, key: str, label: str, badge: str, fg: str, bg: str):
         super().__init__()
         self.key = key
@@ -40,6 +45,7 @@ class DocTypePicker(QFrame):
 
     confirmed = Signal(str)   # file_type đã chọn
 
+    @log_call
     def __init__(self, options: list[tuple[str, str, str, str, str]],
                  default_key: str | None, page_count: int, parent=None):
         super().__init__(parent)
@@ -75,12 +81,14 @@ class DocTypePicker(QFrame):
         self._cards[selected].setChecked(True)
         self._update_confirm_label()
 
+    @log_call
     def _selected_key(self) -> str:
         for key, card in self._cards.items():
             if card.isChecked():
                 return key
         return next(iter(self._cards))
 
+    @log_call
     def _update_confirm_label(self, *_args):
         key = self._selected_key()
         label = self._labels[key]
@@ -89,6 +97,7 @@ class DocTypePicker(QFrame):
         else:
             self.confirm_btn.setText(f"Tạo {label}")
 
+    @log_call
     def _on_confirm(self):
         key = self._selected_key()
         for card in self._cards.values():
@@ -102,6 +111,7 @@ class SuggestionCard(QFrame):
 
     chip_clicked = Signal(str)
 
+    @log_call
     def __init__(self, question: str, chips: list[str], parent=None):
         super().__init__(parent)
         self.setObjectName("suggestionCard")
@@ -133,6 +143,7 @@ class SuggestionCard(QFrame):
         else:
             self._chip_row = None
 
+    @log_call
     def _on_chip(self, text: str):
         if self._chip_row is not None:
             for chip_index in range(self._chip_row.count()):
@@ -148,6 +159,7 @@ class QuotaWarningCard(QFrame):
     upgrade_clicked = Signal()
     dismissed = Signal()
 
+    @log_call
     def __init__(self, message: str, hint: str = "", parent=None):
         super().__init__(parent)
         self.setObjectName("quotaWarningCard")
@@ -181,10 +193,12 @@ class QuotaWarningCard(QFrame):
         btn_row.addStretch()
         lay.addLayout(btn_row)
 
+    @log_call
     def _on_upgrade(self):
         self.setEnabled(False)
         self.upgrade_clicked.emit()
 
+    @log_call
     def _on_dismiss(self):
         self.setEnabled(False)
         self.dismissed.emit()
@@ -196,6 +210,7 @@ class GenErrorCard(QFrame):
     retry_clicked = Signal()
     save_partial_clicked = Signal()
 
+    @log_call
     def __init__(self, message: str, pages_done: int, total: int,
                  can_save_partial: bool, parent=None):
         super().__init__(parent)
@@ -247,10 +262,12 @@ class GenErrorCard(QFrame):
         br_lay.addStretch()
         lay.addWidget(btn_row)
 
+    @log_call
     def _on_retry(self):
         self.setEnabled(False)
         self.retry_clicked.emit()
 
+    @log_call
     def _on_save_partial(self):
         self.setEnabled(False)
         self.save_partial_clicked.emit()

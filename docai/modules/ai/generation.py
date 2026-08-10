@@ -10,6 +10,10 @@ from typing import Optional
 
 from ..common.filenames import FORBIDDEN_FILENAME_CHARS
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _CREATE_VERBS = ("tạo", "soạn", "lập", "làm", "viết", "dựng", "thiết kế", "vẽ")
 _GENERIC_NOUNS = ("file", "tài liệu", "giấy tờ", "văn bản")
 _PPT_WORDS = ("slide", "powerpoint", "trình bày", "thuyết trình", "ppt", ".pptx")
@@ -35,6 +39,7 @@ _STOPWORDS = {
 }
 
 
+@log_call
 def detect_create_intent(text: str, has_open_file: bool = False) -> Optional[str]:
     """Trả về "word"/"excel"/"ppt" (định dạng suy đoán được), "needs_type"
     (chắc chắn là yêu cầu tạo mới nhưng chưa rõ định dạng), "ambiguous"
@@ -59,6 +64,7 @@ def detect_create_intent(text: str, has_open_file: bool = False) -> Optional[str
     return "needs_type"
 
 
+@log_call
 def _is_ambiguous(low: str) -> bool:
     has_generic_noun = any(noun in low for noun in _GENERIC_NOUNS)
     has_domain = any(domain_word in low for domain_word in _DOMAIN_HINTS)
@@ -66,6 +72,7 @@ def _is_ambiguous(low: str) -> bool:
     return has_generic_noun and not has_domain and word_count <= 8
 
 
+@log_call
 def build_creation_prompt(file_type: str, user_text: str, page_count: int,
                           business: dict | None = None) -> str:
     """Câu lệnh gửi lên server (/chat) — yêu cầu AI trả về nội dung kèm mốc
@@ -95,6 +102,7 @@ def build_creation_prompt(file_type: str, user_text: str, page_count: int,
     )
 
 
+@log_call
 def guess_page_count(text: str, default: int = 5) -> int:
     """Suy đoán số trang/slide từ câu lệnh (vd "...6 trang: ..."), có giới
     hạn hợp lý để tránh AI bị yêu cầu soạn quá dài."""
@@ -105,6 +113,7 @@ def guess_page_count(text: str, default: int = 5) -> int:
     return max(1, min(parsed_count, 20))
 
 
+@log_call
 def suggest_file_name(user_text: str) -> str:
     """Gợi ý tên file từ câu lệnh — bỏ động từ/số trang, ghép các từ chính."""
     text = re.sub(r'\d+\s*(trang|slide)s?.*$', '', user_text, flags=re.IGNORECASE)

@@ -18,7 +18,12 @@ from ...modules.common.filenames import FORBIDDEN_FILENAME_CHARS
 from ..constants import CONVERT_TARGETS, CONVERT_EXT, CREATE_EXT, CREATE_TITLE
 from ..thread_worker import CallWorker
 
+from ...logging_config import get_logger, log_call
 
+logger = get_logger(__name__)
+
+
+@log_call
 def _modal_header(dialog: QDialog, title: str) -> QHBoxLayout:
     row = QHBoxLayout()
     lbl = QLabel(title)
@@ -38,6 +43,7 @@ def _modal_header(dialog: QDialog, title: str) -> QHBoxLayout:
 class SettingsDialog(QDialog):
     logged_out = Signal()
 
+    @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Cài đặt & tài khoản")
@@ -89,6 +95,7 @@ class SettingsDialog(QDialog):
 
         self._load_account()
 
+    @log_call
     def _switch_tab(self, idx: int):
         for btn_index, btn in enumerate(self._tab_btns):
             btn.setChecked(btn_index == idx)
@@ -96,6 +103,7 @@ class SettingsDialog(QDialog):
 
     # ── Tab Tài khoản ─────────────────────────────────────────────────────────
 
+    @log_call
     def _build_account_tab(self, cfg: dict) -> QWidget:
         tab = QWidget()
         lay = QVBoxLayout(tab)
@@ -134,12 +142,14 @@ class SettingsDialog(QDialog):
         lay.addLayout(logout_row)
         return tab
 
+    @log_call
     def _load_account(self):
         self._me_worker = CallWorker(api_client.me)
         self._me_worker.ok.connect(self._on_account)
         self._me_worker.err.connect(lambda msg: self._acc_vals["plan"].setText(msg))
         self._me_worker.start()
 
+    @log_call
     def _on_account(self, data: dict):
         plan = "Pro" if data.get("plan") == "pro" else "Free"
         self._acc_vals["email"].setText(data.get("email") or "—")
@@ -152,6 +162,7 @@ class SettingsDialog(QDialog):
             if biz.get(biz_key) and not edit.text().strip():
                 edit.setText(str(biz[biz_key]))
 
+    @log_call
     def _logout(self):
         api_client.logout()
         self.logged_out.emit()
@@ -159,6 +170,7 @@ class SettingsDialog(QDialog):
 
     # ── Tab Doanh nghiệp ──────────────────────────────────────────────────────
 
+    @log_call
     def _build_business_tab(self, cfg: dict) -> QWidget:
         tab = QWidget()
         form = QFormLayout(tab)
@@ -183,6 +195,7 @@ class SettingsDialog(QDialog):
 
     # ── Tab Giới hạn ──────────────────────────────────────────────────────────
 
+    @log_call
     def _build_limits_tab(self, cfg: dict) -> QWidget:
         tab = QWidget()
         lay = QVBoxLayout(tab)
@@ -193,6 +206,7 @@ class SettingsDialog(QDialog):
         lay.addStretch()
         return tab
 
+    @log_call
     def _save(self):
         business = {field_key: field_edit.text().strip() for field_key, field_edit in self.biz_inputs.items()}
         cfg = load_config()
@@ -210,6 +224,7 @@ class SettingsDialog(QDialog):
 class ConvertDialog(QDialog):
     conversion_done = Signal(str)   # đường dẫn kết quả thật (file hoặc thư mục — xem PDF→Ảnh)
 
+    @log_call
     def __init__(self, path: str, file_type: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Chuyển đổi định dạng")
@@ -280,12 +295,15 @@ class ConvertDialog(QDialog):
         btn_row.addWidget(self.convert_btn)
         lay.addLayout(btn_row)
 
+    @log_call
     def _target_ext(self) -> str:
         return CONVERT_EXT[self.target_combo.currentText()]
 
+    @log_call
     def _is_searchable(self) -> bool:
         return self.target_combo.currentText() == "PDF - có thể tìm kiếm (.pdf)"
 
+    @log_call
     def _pick_extra_images(self):
         paths, _ = QFileDialog.getOpenFileNames(
             self, "Chọn thêm ảnh để gộp",
@@ -301,12 +319,14 @@ class ConvertDialog(QDialog):
         self.extra_lbl.setText(
             "Chưa chọn thêm ảnh nào" if extra_count == 0 else f"Đã chọn thêm {extra_count} ảnh (gộp theo thứ tự)")
 
+    @log_call
     def _compute_out_path(self, target_ext: str) -> str:
         src = Path(self._path)
         if self._file_type == "pdf" and target_ext == ".png":
             return str(src.with_name(f"{src.stem}_anh"))
         return str(src.with_suffix(target_ext))
 
+    @log_call
     def _start(self):
         self.convert_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
@@ -324,10 +344,12 @@ class ConvertDialog(QDialog):
         self._worker.err.connect(self._on_convert_err)
         self._worker.start()
 
+    @log_call
     def _on_convert_ok(self, out_path: str):
         self.conversion_done.emit(out_path)
         self.accept()
 
+    @log_call
     def _on_convert_err(self, msg: str):
         self.progress.setVisible(False)
         self.status_lbl.setText(f"⚠ {msg}")
@@ -342,6 +364,7 @@ class OverwriteDialog(QDialog):
     SAVE_COPY = 1
     OVERWRITE = 2
 
+    @log_call
     def __init__(self, file_name: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Xác nhận ghi đè")
@@ -386,10 +409,12 @@ class OverwriteDialog(QDialog):
         btn_row.addWidget(overwrite, stretch=1)
         lay.addLayout(btn_row)
 
+    @log_call
     def _pick_copy(self):
         self.choice = self.SAVE_COPY
         self.accept()
 
+    @log_call
     def _pick_overwrite(self):
         self.choice = self.OVERWRITE
         self.accept()
@@ -404,6 +429,7 @@ class NewDocumentDialog(QDialog):
     lỗi toàn màn hình của dialog. Sau `exec()` thành công: `.result_path`
     (đường dẫn cuối cùng) và `.open_after` (có mở file ngay không)."""
 
+    @log_call
     def __init__(self, file_type: str, suggested_name: str, default_dir: str, parent=None):
         super().__init__(parent)
         self._file_type = file_type
@@ -433,6 +459,7 @@ class NewDocumentDialog(QDialog):
 
     # ── Trang chính: tên + nơi lưu ───────────────────────────────────────────
 
+    @log_call
     def _build_form_page(self, suggested_name: str) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -536,6 +563,7 @@ class NewDocumentDialog(QDialog):
         return page
 
     @staticmethod
+    @log_call
     def _dup_option_qss() -> str:
         return (
             "QPushButton { text-align:left; border:1px solid #D8D5CF; border-radius:9px;"
@@ -545,6 +573,7 @@ class NewDocumentDialog(QDialog):
 
     # ── Trang lỗi nơi lưu (EC2) ──────────────────────────────────────────────
 
+    @log_call
     def _build_path_error_page(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -585,11 +614,13 @@ class NewDocumentDialog(QDialog):
 
     # ── Validate tên (EC3) ───────────────────────────────────────────────────
 
+    @log_call
     def _on_name_changed(self, _text: str):
         self._dup_choice = None
         self._dup_host.setVisible(False)
         self._validate_name()
 
+    @log_call
     def _validate_name(self):
         name = self.name_edit.text().strip()
         forbidden = sorted(set(re.findall(FORBIDDEN_FILENAME_CHARS, name)))
@@ -600,6 +631,7 @@ class NewDocumentDialog(QDialog):
         else:
             self._clear_name_error()
 
+    @log_call
     def _set_name_error(self, msg: str):
         self._name_frame.setStyleSheet(
             "QFrame { border:1.5px solid #C0392B; border-radius:9px; }")
@@ -607,6 +639,7 @@ class NewDocumentDialog(QDialog):
         self._name_error.setVisible(True)
         self.create_btn.setEnabled(False)
 
+    @log_call
     def _clear_name_error(self):
         self._name_frame.setStyleSheet(
             "QFrame { border:1px solid #D8D5CF; border-radius:9px; }")
@@ -615,6 +648,7 @@ class NewDocumentDialog(QDialog):
 
     # ── Chọn / đổi nơi lưu ────────────────────────────────────────────────────
 
+    @log_call
     def _pick_dir(self):
         path = QFileDialog.getExistingDirectory(self, "Chọn nơi lưu", self._save_dir)
         if path:
@@ -623,6 +657,7 @@ class NewDocumentDialog(QDialog):
             self._dup_choice = None
             self._dup_host.setVisible(False)
 
+    @log_call
     def _pick_dir_from_error(self):
         path = QFileDialog.getExistingDirectory(self, "Chọn nơi lưu", str(Path.home()))
         if path:
@@ -632,10 +667,12 @@ class NewDocumentDialog(QDialog):
 
     # ── Tạo file ──────────────────────────────────────────────────────────────
 
+    @log_call
     def _pick_dup(self, choice: str):
         self._dup_choice = choice
         self.create_btn.setEnabled(True)
 
+    @log_call
     def _on_create(self):
         name = self.name_edit.text().strip()
         if not name or re.search(FORBIDDEN_FILENAME_CHARS, name):

@@ -14,19 +14,26 @@ Server (Claude) quyết định danh sách lệnh sửa; module này chỉ đi�
 """
 from pathlib import Path
 
+from ..logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 try:
     from docx import Document as DocxDocument   # noqa: F401 — chỉ để kiểm tra có lib
 except ImportError:
+    logger.debug("python-docx not installed — Word editing will raise if used.")
     DocxDocument = None  # type: ignore
 
 try:
     import openpyxl
 except ImportError:
+    logger.debug("openpyxl not installed — Excel editing will raise if used.")
     openpyxl = None  # type: ignore
 
 try:
     import pptx as _pptx_lib   # noqa: F401 — chỉ để kiểm tra có lib
 except ImportError:
+    logger.debug("python-pptx not installed — PPT editing will raise if used.")
     _pptx_lib = None  # type: ignore
 
 from ..modules.excel import ops as excel_ops
@@ -56,6 +63,7 @@ class EditError(Exception):
     """Không sửa được file — thông báo tiếng Việt cho người dùng."""
 
 
+@log_call
 def check_editable(path: str, file_type: str | None) -> None:
     """Ném EditError nếu file không nằm trong phạm vi sửa được."""
     if file_type not in ("word", "excel", "ppt", "image"):
@@ -75,6 +83,7 @@ def check_editable(path: str, file_type: str | None) -> None:
         raise EditError("Thiếu thư viện python-pptx để sửa file PowerPoint.")
 
 
+@log_call
 def document_outline(path: str, file_type: str | None) -> str:
     """Mô tả cấu trúc file để gửi lên server làm ngữ cảnh cho Claude."""
     try:
@@ -93,6 +102,7 @@ def document_outline(path: str, file_type: str | None) -> str:
     return ""
 
 
+@log_call
 def apply_edits(path: str, file_type: str | None, edits: list[dict]) -> list[str]:
     """Thực thi danh sách lệnh sửa. Trả về mô tả từng lệnh (để báo trong chat)."""
     check_editable(path, file_type)

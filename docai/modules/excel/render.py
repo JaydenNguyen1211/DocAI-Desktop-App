@@ -4,10 +4,15 @@ import re
 from ...imkit import EagerPageSource
 from .com import export_all_charts
 
+from ...logging_config import get_logger, log_call
+
+logger = get_logger(__name__)
+
 _CHART_TYPE_LABEL = {"BarChart": "cột", "LineChart": "đường", "PieChart": "tròn"}
 _EMU_PER_PX = 914400 / 96          # 96 DPI — cùng mốc quy đổi với DEF_CW/DEF_RH
 
 
+@log_call
 def _chart_title_text(chart):
     """Chữ tiêu đề chart (nếu có) — chỉ dùng cho placeholder khi không xuất
     được ảnh chart thật qua COM."""
@@ -17,10 +22,11 @@ def _chart_title_text(chart):
             parts = [run.t for para in title.tx.rich.p for run in (para.r or []) if run.t]
             return " ".join(parts) or None
     except Exception:
-        pass
+        logger.debug("Could not read chart title text.", exc_info=True)
     return None
 
 
+@log_call
 def _chart_extent(chart, def_cw: int, def_rh: int):
     """Vị trí/kích thước chart theo cột-hàng (1-based, đơn vị pixel CHƯA nhân
     S — cùng thang với cw_list/rh_list) từ anchor đọc lại sau khi lưu file
@@ -38,11 +44,13 @@ def _chart_extent(chart, def_cw: int, def_rh: int):
     return start_col, start_row, cols_needed, rows_needed
 
 
+@log_call
 def excel_page_source(path: str) -> EagerPageSource:
     png_paths, tmp_dir = _render_excel_sheets(path)
     return EagerPageSource(png_paths, tmp_dir)
 
 
+@log_call
 def _render_excel_sheets(path: str) -> tuple[list[str], str]:
     import tempfile
     import openpyxl
@@ -288,6 +296,8 @@ def _render_excel_sheets(path: str) -> tuple[list[str], str]:
                     img.paste(chart_img, (cx, cy))
                     pasted = True
                 except Exception:
+                    logger.warning("Failed to paste exported chart image %s — using placeholder.",
+                                   png, exc_info=True)
                     pasted = False
             if not pasted:
                 dw.rectangle([cx, cy, cx + cw_px - 1, cy + ch_px - 1], fill="#F2F2F2", outline=GRID_CLR)
