@@ -31,6 +31,7 @@ from .creators import create_excel_from_text
 from .models import AttachedFile
 
 from ...logging_config import get_logger, log_call
+from ...strings import DocSet as S
 
 logger = get_logger(__name__)
 
@@ -183,8 +184,7 @@ def resolve_input_files(user_request: str, attached: list[str], recent_outputs: 
     if not resolved:
         return ResolveResult(
             paths=[], needs_clarification=True,
-            message="Chưa rõ bạn muốn xử lý (các) file nào — hãy chọn file trong danh sách "
-                     "hoặc nói rõ tên file.",
+            message=S.CLARIFY_WHICH_FILES,
             suggestions=[os.path.basename(p) for p in pool[:8]])
 
     hint_match = _COUNT_HINT_RE.search(text)
@@ -194,8 +194,7 @@ def resolve_input_files(user_request: str, attached: list[str], recent_outputs: 
             remaining = [path for path in pool if path not in resolved]
             return ResolveResult(
                 paths=resolved, needs_clarification=True,
-                message=(f"Bạn nhắc tới {hint_count} file nhưng mình mới nhận diện được "
-                        f"{len(resolved)}. Còn thiếu file nào nữa?"),
+                message=S.CLARIFY_MORE_FILES.format(hint_count=hint_count, resolved_count=len(resolved)),
                 suggestions=[os.path.basename(p) for p in remaining[:8]])
 
     return ResolveResult(paths=resolved)
@@ -220,7 +219,7 @@ def _extract_one(path: str) -> AttachedFile:
         return _ocr_pdf(path)
     if family == "image":
         return _ocr_image(path)
-    raise DocSetError(f"Định dạng chưa hỗ trợ: {ext or path}")
+    raise DocSetError(S.FORMAT_UNSUPPORTED.format(ext_or_path=ext or path))
 
 
 @log_call
@@ -603,7 +602,7 @@ def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
         # được, chuyển hướng sang hợp nhất dữ liệu thành 1 bảng.
         files, skipped = _extract_all(paths)
         if not files:
-            raise DocSetError("Không đọc được nội dung file nào trong danh sách đã chọn.")
+            raise DocSetError(S.NO_READABLE_CONTENT)
         result = _handle_extract_merge(user_request, files)
         if skipped:
             result.analysis = (f"⚠ Bỏ qua {len(skipped)} file không đọc được: "
@@ -622,7 +621,7 @@ def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
     try:
         builder(paths, out_path)
     except Exception as exc:  # noqa: BLE001 — mọi lỗi đọc/ghi quy về 1 thông báo
-        raise DocSetError(f"Không gộp được file: {exc}") from exc
+        raise DocSetError(S.MERGE_FAILED.format(error=exc)) from exc
 
     names = [os.path.basename(p) for p in paths]
     ordered = "\n".join(f"{i}. {name}" for i, name in enumerate(names, start=1))
@@ -669,10 +668,10 @@ def process_document_set(paths: list[str], user_request: str,
     tìm kiếm/rà soát — không có cách nào đọc chữ trong ảnh mà không qua AI.
     """
     if not paths:
-        raise DocSetError("Chưa chọn file nào để xử lý.")
+        raise DocSetError(S.NO_FILES_SELECTED)
     missing = [p for p in paths if not os.path.isfile(p)]
     if missing:
-        raise DocSetError("Không tìm thấy file: " + ", ".join(os.path.basename(p) for p in missing))
+        raise DocSetError(S.FILES_NOT_FOUND.format(names=", ".join(os.path.basename(p) for p in missing)))
 
     task = _classify(user_request, paths)
 
@@ -687,7 +686,7 @@ def process_document_set(paths: list[str], user_request: str,
 
     files, skipped = _extract_all(paths)
     if not files:
-        raise DocSetError("Không đọc được nội dung file nào trong danh sách đã chọn.")
+        raise DocSetError(S.NO_READABLE_CONTENT)
 
     if task == TASK_EXTRACT_MERGE:
         result = _handle_extract_merge(user_request, files)

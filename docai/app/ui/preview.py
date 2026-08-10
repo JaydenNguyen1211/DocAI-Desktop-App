@@ -24,6 +24,7 @@ from ...modules.word.render import word_page_source
 from ..constants import FILE_BADGE, OPEN_WITH_LABEL
 
 from ...logging_config import get_logger, log_call
+from ...strings import Preview as S
 
 logger = get_logger(__name__)
 
@@ -132,7 +133,7 @@ class PagePreviewWidget(QScrollArea):
 
         page_count = source.page_count
         if page_count == 0:
-            self.show_message("Không có trang nào.")
+            self.show_message(S.NO_PAGES)
             return
 
         w0, h0 = source.page_size(0)
@@ -337,28 +338,28 @@ class PreviewPanel(QFrame):
 
         self._current_path: str | None = None
 
-        self.open_folder_btn = QPushButton("Mở thư mục")
+        self.open_folder_btn = QPushButton(S.OPEN_FOLDER)
         self.open_folder_btn.setObjectName("previewOpenBtn")
         self.open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_folder_btn.setVisible(False)
         self.open_folder_btn.clicked.connect(self._open_folder)
         hdr_lay.addWidget(self.open_folder_btn)
 
-        self.open_with_btn = QPushButton("Mở bằng…")
+        self.open_with_btn = QPushButton(S.OPEN_WITH)
         self.open_with_btn.setObjectName("previewOpenWithBtn")
         self.open_with_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_with_btn.setVisible(False)
         self.open_with_btn.clicked.connect(self._open_with)
         hdr_lay.addWidget(self.open_with_btn)
 
-        self.extract_text_btn = QPushButton("Trích xuất văn bản")
+        self.extract_text_btn = QPushButton(S.EXTRACT_TEXT)
         self.extract_text_btn.setObjectName("previewOpenBtn")
         self.extract_text_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.extract_text_btn.setVisible(False)
         self.extract_text_btn.clicked.connect(self.extract_text_requested.emit)
         hdr_lay.addWidget(self.extract_text_btn)
 
-        convert_btn = QPushButton("Chuyển đổi định dạng")
+        convert_btn = QPushButton(S.CONVERT)
         convert_btn.setObjectName("convertBtn")
         convert_btn.clicked.connect(self.convert_requested.emit)
         hdr_lay.addWidget(convert_btn)
@@ -371,7 +372,7 @@ class PreviewPanel(QFrame):
         search_lay.setContentsMargins(14, 6, 10, 6)
         search_lay.setSpacing(6)
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Tìm từ khóa trong PDF…")
+        self.search_input.setPlaceholderText(S.SEARCH_PLACEHOLDER)
         self.search_input.returnPressed.connect(self._search_next)
         self.search_input.textChanged.connect(self._run_search)
         search_lay.addWidget(self.search_input, stretch=1)
@@ -392,7 +393,7 @@ class PreviewPanel(QFrame):
         self.pages = PagePreviewWidget()
         lay.addWidget(self.pages, stretch=1)
 
-        footer = QLabel("Xem trước tài liệu — giữ nguyên format")
+        footer = QLabel(S.FOOTER)
         footer.setObjectName("previewFooter")
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(footer)
@@ -417,7 +418,8 @@ class PreviewPanel(QFrame):
         self._current_path = path
         self.open_folder_btn.setVisible(True)
         self.open_with_btn.setVisible(True)
-        self.open_with_btn.setText(f"Mở bằng {OPEN_WITH_LABEL.get(file_type, 'ứng dụng')}")
+        self.open_with_btn.setText(
+            S.OPEN_WITH_TYPE.format(label=OPEN_WITH_LABEL.get(file_type, S.OPEN_WITH_DEFAULT_LABEL)))
 
         is_pdf = file_type == "pdf"
         self.extract_text_btn.setVisible(is_pdf)
@@ -439,14 +441,13 @@ class PreviewPanel(QFrame):
 
         factory = _SOURCE_FACTORIES.get(file_type)
         if factory is None:
-            self.pages.show_message("Định dạng chưa hỗ trợ xem trước.")
+            self.pages.show_message(S.UNSUPPORTED_FORMAT)
             return
         if file_type not in ("image",) and not HAS_PAGEPREVIEW:
-            self.pages.show_message(
-                "Cần cài PyMuPDF + Pillow để xem trước tài liệu.")
+            self.pages.show_message(S.NEEDS_DEPENDENCIES)
             return
 
-        self.pages.show_message("Đang mở tài liệu…")
+        self.pages.show_message(S.OPENING)
 
         def _work():
             try:
@@ -469,7 +470,7 @@ class PreviewPanel(QFrame):
     def _on_err(self, gen: int, msg: str):
         if gen != self._gen:
             return
-        self.pages.show_message(f"Không xem trước được:\n{msg}")
+        self.pages.show_message(S.PREVIEW_FAILED.format(error=msg))
 
     @log_call
     def cleanup(self):
@@ -504,11 +505,11 @@ class PreviewPanel(QFrame):
     def _update_search_count(self):
         if not self._search_matches:
             self.search_count.setText(
-                "Không tìm thấy" if self.search_input.text().strip() else "")
+                S.NOT_FOUND if self.search_input.text().strip() else "")
             return
         page = self._search_matches[self._search_pos] + 1
         self.search_count.setText(
-            f"Trang {page} ({self._search_pos + 1}/{len(self._search_matches)})")
+            S.SEARCH_RESULT.format(page=page, pos=self._search_pos + 1, total=len(self._search_matches)))
 
     @log_call
     def _search_next(self):

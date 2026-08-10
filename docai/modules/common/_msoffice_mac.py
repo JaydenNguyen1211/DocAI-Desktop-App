@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 from ...logging_config import get_logger, log_call
+from ...strings import Office as S
 
 logger = get_logger(__name__)
 
@@ -39,15 +40,13 @@ def _run_applescript(script: str, timeout: int = 90) -> None:
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
-        raise MsOfficeMacError(detail or "AppleScript thất bại không rõ nguyên nhân.")
+        raise MsOfficeMacError(detail or S.APPLESCRIPT_FAILED)
 
 
 @log_call
 def _safe_path(path: str) -> str:
     if '"' in path:
-        raise MsOfficeMacError(
-            f"Đường dẫn chứa ký tự không hợp lệ (dấu nháy kép): {path}"
-        )
+        raise MsOfficeMacError(S.INVALID_PATH_QUOTE.format(path=path))
     return path
 
 
@@ -88,13 +87,11 @@ def word_to_pdf(input_path: str, out_path: str) -> None:
     try:
         from docx2pdf import convert as _d2p_convert
     except ImportError:
-        raise MsOfficeMacError(
-            "Cần cài docx2pdf: pip install docx2pdf"
-        )
+        raise MsOfficeMacError(S.MISSING_DOCX2PDF)
     try:
         _d2p_convert(input_path, out_path)
     except Exception as exc:
-        raise MsOfficeMacError(f"docx2pdf thất bại: {exc}")
+        raise MsOfficeMacError(S.DOCX2PDF_FAILED.format(error=exc))
 
 
 @log_call

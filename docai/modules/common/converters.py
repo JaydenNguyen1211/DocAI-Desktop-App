@@ -24,6 +24,7 @@ from .creators import create_excel_from_text
 from .extractors import pdf_page_texts
 
 from ...logging_config import get_logger, log_call
+from ...strings import Converters as S
 
 logger = get_logger(__name__)
 
@@ -48,7 +49,7 @@ def word_to_pdf_file(path: str, out_path: str) -> str:
     try:
         return word_to_pdf(path, out_path)
     except Exception as exc:  # noqa: BLE001 — mọi lỗi COM đều quy về 1 thông báo
-        raise ConvertError(f"Không chuyển được Word sang PDF: {exc}")
+        raise ConvertError(S.WORD_TO_PDF_FAILED.format(error=exc))
 
 
 @log_call
@@ -56,7 +57,7 @@ def ppt_to_pdf_file(path: str, out_path: str) -> str:
     try:
         return ppt_to_pdf(path, out_path)
     except Exception as exc:  # noqa: BLE001
-        raise ConvertError(f"Không chuyển được PowerPoint sang PDF: {exc}")
+        raise ConvertError(S.PPT_TO_PDF_FAILED.format(error=exc))
 
 
 @log_call
@@ -76,10 +77,7 @@ def pdf_to_word_file(path: str, out_path: str) -> str:
     qua luồng OCR ảnh (Xử lý ảnh) thay vì chức năng này."""
     pages = pdf_page_texts(path)
     if not any(page_text.strip() for page_text in pages):
-        raise ConvertError(
-            "PDF này không có lớp chữ (có thể là bản quét ảnh) — không tự "
-            "chuyển sang Word được. Hãy dùng OCR ảnh (mở từng trang dạng ảnh) "
-            "thay vì chức năng này.")
+        raise ConvertError(S.PDF_NO_TEXT_LAYER)
 
     from docx import Document as DocxDocument
     doc = DocxDocument()
@@ -92,8 +90,7 @@ def pdf_to_word_file(path: str, out_path: str) -> str:
     try:
         doc.save(out_path)
     except PermissionError:
-        raise ConvertError(
-            f"Không ghi được «{Path(out_path).name}» — file đích đang mở ở chương trình khác.")
+        raise ConvertError(S.WRITE_FAILED_FILE_OPEN.format(name=Path(out_path).name))
     return out_path
 
 
@@ -110,7 +107,7 @@ def pdf_to_excel_file(path: str, out_path: str) -> str:
     result = api_client.extract_table(attachment)
     text = (result.get("text") or "").strip()
     if not text:
-        raise ConvertError("AI không trích xuất được dữ liệu dạng bảng từ file này.")
+        raise ConvertError(S.NO_TABLE_DATA_FROM_FILE)
     create_excel_from_text(text, out_path)
     return out_path
 
@@ -130,7 +127,7 @@ def pdf_to_images(path: str, out_dir: str) -> list[str]:
     finally:
         doc.close()
     if not out_paths:
-        raise ConvertError("PDF không có trang nào để xuất.")
+        raise ConvertError(S.PDF_NO_PAGES)
     return out_paths
 
 
@@ -139,7 +136,7 @@ def pdf_to_images(path: str, out_dir: str) -> list[str]:
 @log_call
 def image_to_pdf_file(paths: list[str], out_path: str) -> str:
     if not paths:
-        raise ConvertError("Không có ảnh nào để chuyển đổi.")
+        raise ConvertError(S.NO_IMAGES_TO_CONVERT)
     images = []
     for image_path in paths:
         img = Image.open(image_path)
@@ -149,7 +146,7 @@ def image_to_pdf_file(paths: list[str], out_path: str) -> str:
     try:
         images[0].save(out_path, "PDF", save_all=True, append_images=images[1:])
     except Exception as exc:  # noqa: BLE001
-        raise ConvertError(f"Không tạo được PDF từ ảnh: {exc}")
+        raise ConvertError(S.IMAGE_TO_PDF_FAILED.format(error=exc))
     return out_path
 
 
@@ -159,7 +156,7 @@ def image_to_word_file(paths: list[str], out_path: str) -> str:
     Word chỉnh sửa được — mỗi ảnh 1 trang riêng (ngắt trang giữa các ảnh), giữ
     đúng cách ngắt đoạn AI đọc được. Cần mạng + quota, tốn 1 lượt gọi/ảnh."""
     if not paths:
-        raise ConvertError("Không có ảnh nào để chuyển đổi.")
+        raise ConvertError(S.NO_IMAGES_TO_CONVERT)
     from docx import Document as DocxDocument
     doc = DocxDocument()
     got_any = False
@@ -175,12 +172,11 @@ def image_to_word_file(paths: list[str], out_path: str) -> str:
         for para in (text or "(không đọc được nội dung)").split("\n\n"):
             doc.add_paragraph(para.strip())
     if not got_any:
-        raise ConvertError("AI không đọc được nội dung văn bản từ (các) ảnh này.")
+        raise ConvertError(S.NO_TEXT_READ_FROM_IMAGES)
     try:
         doc.save(out_path)
     except PermissionError:
-        raise ConvertError(
-            f"Không ghi được «{Path(out_path).name}» — file đích đang mở ở chương trình khác.")
+        raise ConvertError(S.WRITE_FAILED_FILE_OPEN.format(name=Path(out_path).name))
     return out_path
 
 
@@ -192,7 +188,7 @@ def image_to_searchable_pdf_file(paths: list[str], out_path: str) -> str:
     Claude Vision trả về văn bản thuần chứ không kèm tọa độ — vẫn đủ để tìm
     kiếm/copy toàn văn. Cần mạng + quota, tốn 1 lượt gọi/ảnh."""
     if not paths:
-        raise ConvertError("Không có ảnh nào để chuyển đổi.")
+        raise ConvertError(S.NO_IMAGES_TO_CONVERT)
     import fitz
     doc = fitz.open()
     try:
@@ -210,7 +206,7 @@ def image_to_searchable_pdf_file(paths: list[str], out_path: str) -> str:
                 page.insert_textbox(page.rect, text, fontsize=8, render_mode=3)
         doc.save(out_path)
     except Exception as exc:  # noqa: BLE001
-        raise ConvertError(f"Không tạo được PDF có thể tìm kiếm: {exc}")
+        raise ConvertError(S.SEARCHABLE_PDF_FAILED.format(error=exc))
     finally:
         doc.close()
     return out_path
@@ -226,7 +222,7 @@ def image_to_excel_file(path: str, out_path: str) -> str:
     result = api_client.extract_table(attachment)
     text = (result.get("text") or "").strip()
     if not text:
-        raise ConvertError("AI không trích xuất được dữ liệu dạng bảng từ ảnh này.")
+        raise ConvertError(S.NO_TABLE_DATA_FROM_IMAGE)
     create_excel_from_text(text, out_path)
     return out_path
 
@@ -235,14 +231,14 @@ def image_to_excel_file(path: str, out_path: str) -> str:
 def image_convert_format(path: str, out_path: str) -> str:
     target_fmt = _IMG_FORMAT_BY_EXT.get(Path(out_path).suffix.lower())
     if target_fmt is None:
-        raise ConvertError(f"Định dạng đích chưa hỗ trợ: {Path(out_path).suffix}.")
+        raise ConvertError(S.TARGET_FORMAT_UNSUPPORTED.format(ext=Path(out_path).suffix))
     try:
         img = Image.open(path)
         if target_fmt == "JPEG" and img.mode != "RGB":
             img = img.convert("RGB")
         img.save(out_path, target_fmt)
     except Exception as exc:  # noqa: BLE001
-        raise ConvertError(f"Không chuyển được định dạng ảnh: {exc}")
+        raise ConvertError(S.IMAGE_FORMAT_CONVERT_FAILED.format(error=exc))
     return out_path
 
 
@@ -280,4 +276,4 @@ def convert_file(path: str, source_type: str, target_ext: str, out_path: str,
         return image_to_excel_file(path, out_path)
     if source_type == "image" and target_ext in _IMG_FORMAT_BY_EXT:
         return image_convert_format(path, out_path)
-    raise ConvertError(f"Chưa hỗ trợ chuyển từ {source_type} sang {target_ext}.")
+    raise ConvertError(S.CONVERSION_UNSUPPORTED.format(source_type=source_type, target_ext=target_ext))

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...logging_config import get_logger, log_call
+from ...strings import DocCreation as S
 
 logger = get_logger(__name__)
 
@@ -93,9 +94,9 @@ class DocTypePicker(QFrame):
         key = self._selected_key()
         label = self._labels[key]
         if key != "excel" and self._page_count:
-            self.confirm_btn.setText(f"Tạo {label} ({self._page_count} trang)")
+            self.confirm_btn.setText(S.CONFIRM_WITH_PAGES.format(label=label, page_count=self._page_count))
         else:
-            self.confirm_btn.setText(f"Tạo {label}")
+            self.confirm_btn.setText(S.CONFIRM.format(label=label))
 
     @log_call
     def _on_confirm(self):
@@ -180,12 +181,12 @@ class QuotaWarningCard(QFrame):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        upgrade = QPushButton("Nâng cấp Pro")
+        upgrade = QPushButton(S.UPGRADE_PRO)
         upgrade.setProperty("class", "primaryBtn")
         upgrade.setCursor(Qt.CursorShape.PointingHandCursor)
         upgrade.clicked.connect(self._on_upgrade)
         btn_row.addWidget(upgrade)
-        later = QPushButton("Để sau")
+        later = QPushButton(S.LATER)
         later.setProperty("class", "secondaryBtn")
         later.setCursor(Qt.CursorShape.PointingHandCursor)
         later.clicked.connect(self._on_dismiss)
@@ -229,12 +230,12 @@ class GenErrorCard(QFrame):
         icon.setFixedSize(22, 22)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         head_lay.addWidget(icon)
-        title = QLabel("Tạo file thất bại")
+        title = QLabel(S.GEN_FAILED_TITLE)
         title.setObjectName("genErrorTitle")
         head_lay.addWidget(title)
         head_lay.addStretch()
         if total:
-            prog = QLabel(f"trang {pages_done}/{total}")
+            prog = QLabel(S.GEN_PROGRESS.format(done=pages_done, total=total))
             prog.setObjectName("genErrorProgress")
             head_lay.addWidget(prog)
         lay.addWidget(head)
@@ -248,13 +249,13 @@ class GenErrorCard(QFrame):
         br_lay = QHBoxLayout(btn_row)
         br_lay.setContentsMargins(13, 10, 13, 12)
         br_lay.setSpacing(8)
-        retry = QPushButton("Thử lại")
+        retry = QPushButton(S.RETRY)
         retry.setProperty("class", "primaryBtn")
         retry.setCursor(Qt.CursorShape.PointingHandCursor)
         retry.clicked.connect(self._on_retry)
         br_lay.addWidget(retry)
         if can_save_partial:
-            save_partial = QPushButton(f"Lưu {pages_done} trang đã có")
+            save_partial = QPushButton(S.SAVE_PARTIAL.format(done=pages_done))
             save_partial.setProperty("class", "secondaryBtn")
             save_partial.setCursor(Qt.CursorShape.PointingHandCursor)
             save_partial.clicked.connect(self._on_save_partial)

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from ...account import api_client
 
 from ...logging_config import get_logger, log_call
+from ...strings import FolderOps as S
 
 logger = get_logger(__name__)
 
@@ -186,7 +187,7 @@ def detect_file_mgmt_intent(text: str, folder_files: list[str]) -> FileMgmtInten
 def create_empty_file(folder: str, name: str, ftype: str) -> str:
     path = os.path.join(folder, name)
     if os.path.exists(path):
-        raise FolderOpError(f'File "{name}" đã tồn tại trong thư mục.')
+        raise FolderOpError(S.FILE_ALREADY_EXISTS.format(name=name))
     try:
         if ftype == "word":
             from docx import Document
@@ -198,11 +199,11 @@ def create_empty_file(folder: str, name: str, ftype: str) -> str:
             from pptx import Presentation
             Presentation().save(path)
         else:
-            raise FolderOpError(f"Loại file chưa hỗ trợ: {ftype}")
+            raise FolderOpError(S.FILE_TYPE_UNSUPPORTED.format(ftype=ftype))
     except FolderOpError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise FolderOpError(f"Không tạo được file: {exc}") from exc
+        raise FolderOpError(S.CREATE_FAILED.format(error=exc)) from exc
     return path
 
 
@@ -220,18 +221,18 @@ def delete_file_with_undo(path: str) -> str:
     try:
         shutil.move(path, dest)
     except OSError as exc:
-        raise FolderOpError(f"Không xóa được file: {exc}") from exc
+        raise FolderOpError(S.DELETE_FAILED.format(error=exc)) from exc
     return dest
 
 
 @log_call
 def restore_file(trashed_path: str, original_path: str) -> None:
     if os.path.exists(original_path):
-        raise FolderOpError("Không khôi phục được — đã có file khác cùng tên tại vị trí cũ.")
+        raise FolderOpError(S.RESTORE_NAME_CONFLICT)
     try:
         shutil.move(trashed_path, original_path)
     except OSError as exc:
-        raise FolderOpError(f"Không khôi phục được: {exc}") from exc
+        raise FolderOpError(S.RESTORE_FAILED.format(error=exc)) from exc
 
 
 @log_call
@@ -242,9 +243,9 @@ def rename_file(path: str, new_name: str) -> str:
         new_name += old_ext
     new_path = os.path.join(directory, new_name)
     if os.path.exists(new_path):
-        raise FolderOpError(f'Đã có file tên "{new_name}" trong thư mục.')
+        raise FolderOpError(S.RENAME_NAME_CONFLICT.format(name=new_name))
     try:
         os.rename(path, new_path)
     except OSError as exc:
-        raise FolderOpError(f"Không đổi được tên file: {exc}") from exc
+        raise FolderOpError(S.RENAME_FAILED.format(error=exc)) from exc
     return new_path

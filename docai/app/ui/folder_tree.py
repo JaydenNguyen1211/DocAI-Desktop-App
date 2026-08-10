@@ -19,6 +19,7 @@ from .icons import folder_icon_filled, chevron_icon
 from .folder_scan import ScannedFile
 
 from ...logging_config import get_logger, log_call
+from ...strings import Common, FolderTree as S
 
 logger = get_logger(__name__)
 
@@ -109,7 +110,7 @@ class _FileRow(QFrame):
         self._delete_btn.setObjectName("folderFileDeleteBtn")
         self._delete_btn.setFixedSize(14, 14)
         self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._delete_btn.setToolTip("Xóa khỏi danh sách")
+        self._delete_btn.setToolTip(Common.REMOVE_FROM_LIST)
         self._delete_btn.clicked.connect(self.remove_clicked.emit)
         lay.addWidget(self._delete_btn)
 
@@ -159,7 +160,7 @@ class FolderTree(QWidget):
         self._clear()
 
         # Chip lọc: "Tất cả" + 1 chip cho mỗi loại tìm thấy.
-        all_chip = self._make_chip("Tất cả", None)
+        all_chip = self._make_chip(S.FILTER_ALL, None)
         all_chip.setChecked(True)
         self._chips_row.addWidget(all_chip)
         for ext_type in sorted(counts):

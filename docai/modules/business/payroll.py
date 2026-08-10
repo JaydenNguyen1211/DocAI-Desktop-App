@@ -36,6 +36,7 @@ from .payroll_rates import (
 )
 
 from ...logging_config import get_logger, log_call
+from ...strings import Payroll as S
 
 logger = get_logger(__name__)
 
@@ -111,10 +112,7 @@ def _match_columns(header_row: list) -> dict[str, int]:
     if missing:
         expected = "\n".join(f"  · {_COLUMN_LABEL_VN[f]}" for f in _COLUMN_ALIASES)
         names = ", ".join(_COLUMN_LABEL_VN[f] for f in missing)
-        raise PayrollError(
-            f"Không tìm thấy cột bắt buộc: {names}.\n"
-            f"Bảng chấm công cần có dòng tiêu đề (dòng 1) với các cột (không cần đủ hết, "
-            f"chỉ 2 cột đầu là bắt buộc):\n{expected}")
+        raise PayrollError(S.MISSING_COLUMNS.format(names=names, expected=expected))
     return found
 
 
@@ -147,12 +145,12 @@ def read_attendance_table(path: str) -> list[EmployeeInput]:
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
     except Exception as exc:  # noqa: BLE001 — mọi lỗi mở file quy về 1 thông báo
-        raise PayrollError(f"Không đọc được file «{Path(path).name}»: {exc}")
+        raise PayrollError(S.READ_FAILED.format(name=Path(path).name, error=exc))
 
     ws = wb.active
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
-        raise PayrollError(f"File «{Path(path).name}» trống, không có dữ liệu.")
+        raise PayrollError(S.FILE_EMPTY.format(name=Path(path).name))
 
     cols = _match_columns(list(rows[0]))
     employees: list[EmployeeInput] = []
@@ -185,9 +183,7 @@ def read_attendance_table(path: str) -> list[EmployeeInput]:
         ))
 
     if not employees:
-        raise PayrollError(
-            f"Không có dòng nhân viên nào hợp lệ trong «{Path(path).name}» "
-            f"(mỗi dòng cần có Họ tên).")
+        raise PayrollError(S.NO_VALID_EMPLOYEES.format(name=Path(path).name))
     return employees
 
 
@@ -243,9 +239,9 @@ class EmployeeResult:
 def compute_employee(emp: EmployeeInput,
                      rates: PayrollRates = DEFAULT_PAYROLL_RATES) -> EmployeeResult:
     if emp.basic_salary <= 0:
-        raise PayrollError(f"«{emp.name}»: lương cơ bản phải lớn hơn 0.")
+        raise PayrollError(S.SALARY_MUST_BE_POSITIVE.format(name=emp.name))
     if emp.standard_days <= 0:
-        raise PayrollError(f"«{emp.name}»: ngày công chuẩn phải lớn hơn 0.")
+        raise PayrollError(S.STANDARD_DAYS_MUST_BE_POSITIVE.format(name=emp.name))
 
     ratio = min(1.0, emp.actual_days / emp.standard_days)
     luong_theo_cong = emp.basic_salary * ratio
@@ -369,9 +365,7 @@ def build_payroll_workbook(results: list[EmployeeResult], out_path: str) -> None
     try:
         wb.save(out_path)
     except PermissionError:
-        raise PayrollError(
-            f"Không ghi được file kết quả — «{Path(out_path).name}» đang mở ở "
-            "chương trình khác, hãy đóng lại rồi thử lại.")
+        raise PayrollError(S.OUTPUT_FILE_LOCKED.format(name=Path(out_path).name))
 
 
 # ── Tham số từ server: fetch khi vào hạn, cache local, rơi về mặc định ──────

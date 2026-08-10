@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 
 from ...logging_config import get_logger, log_call
+from ...strings import Creators as S
 
 logger = get_logger(__name__)
 
@@ -77,7 +78,7 @@ def parse_sections(raw_text: str, expected_count: int = 0) -> list[SectionSpec]:
 @log_call
 def create_word(sections: list[SectionSpec], out_path: str):
     if DocxDocument is None:
-        raise RuntimeError("Thiếu thư viện python-docx để tạo file Word.")
+        raise RuntimeError(S.MISSING_DOCX_LIB)
     doc = DocxDocument()
     for section_index, sec in enumerate(sections):
         if section_index > 0:
@@ -92,7 +93,7 @@ def create_word(sections: list[SectionSpec], out_path: str):
 @log_call
 def create_pptx(sections: list[SectionSpec], out_path: str):
     if Presentation is None:
-        raise RuntimeError("Thiếu thư viện python-pptx để tạo file PowerPoint.")
+        raise RuntimeError(S.MISSING_PPTX_LIB)
     prs = Presentation()
     layout = prs.slide_layouts[1]  # Title and Content
     for sec in sections:

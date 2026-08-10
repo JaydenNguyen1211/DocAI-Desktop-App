@@ -14,6 +14,7 @@ from ...modules.common.creators import (
 )
 
 from ...logging_config import get_logger, log_call
+from ...strings import DocGeneration as S
 
 logger = get_logger(__name__)
 
@@ -54,22 +55,22 @@ class DocGenWorker(QThread):
             return
         except Exception as exc:  # noqa: BLE001
             logger.exception("Document generation chat call failed unexpectedly")
-            self.failed.emit(f"Lỗi không xác định: {exc}", 0, [])
+            self.failed.emit(S.UNKNOWN_ERROR.format(error=exc), 0, [])
             return
 
         raw_text = (data.get("text") or "").strip()
         if not raw_text:
-            self.failed.emit("AI không trả về nội dung để tạo file.", 0, [])
+            self.failed.emit(S.NO_CONTENT, 0, [])
             return
 
         if self._file_type == "excel":
-            names = [match.group(1).strip() for match in _SHEET_RE.finditer(raw_text)] or ["Bảng tính"]
+            names = [match.group(1).strip() for match in _SHEET_RE.finditer(raw_text)] or [S.DEFAULT_SHEET_NAME]
             sections = [SectionSpec(heading=name, body="") for name in names]
         else:
             sections = parse_sections(raw_text, self._page_count)
 
         if not sections:
-            self.failed.emit("AI không trả về nội dung để tạo file.", 0, [])
+            self.failed.emit(S.NO_CONTENT, 0, [])
             return
 
         total = len(sections)
@@ -88,7 +89,7 @@ class DocGenWorker(QThread):
                 create_excel_from_text(raw_text, tmp_path)
         except Exception as exc:  # noqa: BLE001 — lỗi cục bộ, nội dung đã soạn vẫn còn
             logger.exception("Failed to build generated %s file locally", self._file_type)
-            self.failed.emit(f"Không dựng được file: {exc}", total, sections)
+            self.failed.emit(S.BUILD_FAILED.format(error=exc), total, sections)
             return
 
         quota = {

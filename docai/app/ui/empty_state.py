@@ -8,6 +8,7 @@ from ..constants import EMPTY_CHIPS, FILE_DIALOG_FILTER, EXT_MAP
 from .icons import paperclip_icon, send_icon, diamond_icon
 
 from ...logging_config import get_logger, log_call
+from ...strings import Common, EmptyState as S
 
 logger = get_logger(__name__)
 
@@ -39,13 +40,13 @@ class CentralChat(QFrame):
         col.addWidget(logo, alignment=Qt.AlignmentFlag.AlignHCenter)
         col.addSpacing(22)
 
-        title = QLabel("Bạn muốn xử lý tài liệu gì?")
+        title = QLabel(S.TITLE)
         title.setObjectName("welcomeTitle")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         col.addWidget(title)
         col.addSpacing(6)
 
-        sub = QLabel("Gõ yêu cầu, hoặc kéo thả file vào cửa sổ.")
+        sub = QLabel(S.SUBTITLE)
         sub.setObjectName("welcomeSub")
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         col.addWidget(sub)
@@ -83,7 +84,7 @@ class CentralChat(QFrame):
 
         self.input_box = QLineEdit()
         self.input_box.setObjectName("welcomeInputBox")
-        self.input_box.setPlaceholderText("Nhập yêu cầu bằng tiếng Việt…")
+        self.input_box.setPlaceholderText(Common.INPUT_PLACEHOLDER)
         self.input_box.returnPressed.connect(self._submit)
         card_lay.addWidget(self.input_box)
 
@@ -96,7 +97,7 @@ class CentralChat(QFrame):
         attach.setIcon(paperclip_icon())
         attach.setIconSize(QSize(17, 17))
         attach.setFixedSize(30, 30)
-        attach.setToolTip("Đính kèm file / thư mục")
+        attach.setToolTip(S.ATTACH_TOOLTIP)
         attach.setCursor(Qt.CursorShape.PointingHandCursor)
         attach.clicked.connect(self._pick_file)
         tools.addWidget(attach)
@@ -131,7 +132,7 @@ class CentralChat(QFrame):
     @log_call
     def _pick_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Chọn file", "", FILE_DIALOG_FILTER)
+            self, S.PICK_FILE_TITLE, "", FILE_DIALOG_FILTER)
         if path:
             self.file_chosen.emit(path)
 

@@ -3,6 +3,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QWidget
 
 from ...logging_config import get_logger, log_call
+from ...strings import Toast as S
 
 logger = get_logger(__name__)
 
@@ -36,19 +37,17 @@ class CacheToast(QLabel):
         fresh = int(usage.get("input_tokens") or 0)
 
         if read:
-            css_class, headline = "cacheToastHit", "Cache HIT"
+            css_class, headline = "cacheToastHit", S.CACHE_HIT
         elif created:
-            css_class, headline = "cacheToastNew", "Cache mới ghi"
+            css_class, headline = "cacheToastNew", S.CACHE_NEW
         else:
-            css_class, headline = "cacheToastNone", "Không dùng cache"
+            css_class, headline = "cacheToastNone", S.CACHE_NONE
 
         self.setProperty("class", css_class)
         self.style().unpolish(self)
         self.style().polish(self)
 
-        self.setText(
-            f"{headline} — đọc: {read:,} · ghi: {created:,} · mới: {fresh:,} token"
-        )
+        self.setText(S.USAGE.format(headline=headline, read=read, created=created, fresh=fresh))
         self.adjustSize()
         self.reposition()
         self.show()

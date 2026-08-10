@@ -12,25 +12,13 @@ from .config import load_config, save_config
 from .server_config import firebase_api_key, api_base_url
 
 from ..logging_config import get_logger, log_call
+from ..strings import Account as S
 
 logger = get_logger(__name__)
 
 _IDENTITY = "https://identitytoolkit.googleapis.com/v1/accounts"
 _TOKEN_URL = "https://securetoken.googleapis.com/v1/token"
 _TIMEOUT = 300  # AI có thể mất vài chục giây
-
-# Ánh xạ lỗi Firebase → thông báo tiếng Việt.
-_ERR_VI = {
-    "EMAIL_EXISTS": "Email này đã được đăng ký.",
-    "INVALID_EMAIL": "Email không hợp lệ.",
-    "EMAIL_NOT_FOUND": "Email chưa được đăng ký.",
-    "INVALID_PASSWORD": "Sai mật khẩu.",
-    "INVALID_LOGIN_CREDENTIALS": "Email hoặc mật khẩu không đúng.",
-    "MISSING_PASSWORD": "Vui lòng nhập mật khẩu.",
-    "USER_DISABLED": "Tài khoản đã bị khóa.",
-    "TOO_MANY_ATTEMPTS_TRY_LATER":
-        "Đăng nhập sai quá nhiều lần, vui lòng thử lại sau.",
-}
 
 
 class ApiError(Exception):
@@ -47,8 +35,8 @@ class ApiError(Exception):
 def _friendly(code: str) -> str:
     base = code.split(":")[0].strip()  # WEAK_PASSWORD : ... → WEAK_PASSWORD
     if base == "WEAK_PASSWORD":
-        return "Mật khẩu quá yếu (cần tối thiểu 6 ký tự)."
-    return _ERR_VI.get(base, f"Lỗi xác thực: {code}" if code else "Lỗi không rõ.")
+        return S.WEAK_PASSWORD
+    return S.ERROR_MAP.get(base, S.AUTH_ERROR.format(code=code) if code else S.UNKNOWN_ERROR)
 
 
 # ── Lưu / đọc phiên đăng nhập ──────────────────────────────────────────────
@@ -62,8 +50,7 @@ def _store_session(data: dict):
     id_token = data.get("idToken") or data.get("id_token")
     refresh_token = data.get("refreshToken") or data.get("refresh_token")
     if not id_token or not refresh_token:
-        raise ApiError("Phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại.",
-                       "BAD_SESSION")
+        raise ApiError(S.INVALID_SESSION, "BAD_SESSION")
     expires_in = data.get("expiresIn") or data.get("expires_in") or "3600"
     cfg["auth"] = {
         "id_token": id_token,
@@ -108,7 +95,7 @@ def _identity(endpoint: str, payload: dict) -> dict:
             f"{_IDENTITY}:{endpoint}?key={key}", json=payload, timeout=30,
         )
     except requests.RequestException:
-        raise ApiError("Không kết nối được máy chủ. Kiểm tra mạng.")
+        raise ApiError(S.NO_CONNECTION)
     body = response.json() if response.content else {}
     if response.status_code >= 400:
         code = (body.get("error", {}) or {}).get("message", "")
@@ -139,7 +126,7 @@ def _refresh() -> str:
     sess = _session()
     token = sess.get("refresh_token")
     if not token:
-        raise ApiError("Chưa đăng nhập.", "NO_SESSION")
+        raise ApiError(S.NOT_LOGGED_IN, "NO_SESSION")
     try:
         response = requests.post(
             f"{_TOKEN_URL}?key={firebase_api_key()}",
@@ -147,11 +134,10 @@ def _refresh() -> str:
             timeout=30,
         )
     except requests.RequestException:
-        raise ApiError("Không kết nối được máy chủ. Kiểm tra mạng.")
+        raise ApiError(S.NO_CONNECTION)
     if response.status_code >= 400:
         logout()
-        raise ApiError("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.",
-                       "REFRESH_FAILED")
+        raise ApiError(S.SESSION_EXPIRED, "REFRESH_FAILED")
     _store_session(response.json())
     return _session()["id_token"]
 
@@ -179,7 +165,7 @@ def _call(method: str, path: str, json_body: dict | None = None,
             headers={"Authorization": f"Bearer {token}"},
         )
     except requests.RequestException:
-        raise ApiError("Không kết nối được máy chủ. Kiểm tra mạng.")
+        raise ApiError(S.NO_CONNECTION)
 
     if response.status_code == 401 and retry_auth:
         logger.debug("401 from %s %s — refreshing token and retrying once", method, path)
@@ -188,10 +174,9 @@ def _call(method: str, path: str, json_body: dict | None = None,
 
     body = response.json() if response.content else {}
     if response.status_code == 402:
-        raise ApiError("Đã hết lượt gọi AI trong tháng. Nâng cấp gói để tiếp tục.",
-                       "quota_exceeded")
+        raise ApiError(S.QUOTA_EXCEEDED, "quota_exceeded")
     if response.status_code >= 400 or not body.get("ok", False):
-        raise ApiError(f"Máy chủ báo lỗi ({response.status_code}).",
+        raise ApiError(S.SERVER_ERROR.format(status=response.status_code),
                        body.get("error", "server_error"))
     return body
 

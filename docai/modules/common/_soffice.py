@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 
 from ...logging_config import get_logger, log_call
+from ...strings import Office as S
 
 logger = get_logger(__name__)
 
@@ -23,10 +24,7 @@ def _find_soffice() -> str:
     for c in candidates:
         if c and os.path.isfile(c):
             return c
-    raise SofficeError(
-        "Không tìm thấy LibreOffice. Hãy cài LibreOffice (https://libreoffice.org) "
-        "hoặc Microsoft Office để chuyển đổi / xem trước file Word, PowerPoint, Excel."
-    )
+    raise SofficeError(S.LIBREOFFICE_NOT_FOUND)
 
 
 @log_call
@@ -43,12 +41,12 @@ def convert_to_pdf(input_path: str, out_path: str) -> str:
         )
         if proc.returncode != 0:
             detail = (proc.stderr or proc.stdout).strip()
-            raise SofficeError(f"LibreOffice báo lỗi: {detail}")
+            raise SofficeError(S.LIBREOFFICE_ERROR.format(detail=detail))
 
         base = os.path.splitext(os.path.basename(abs_input))[0]
         tmp_pdf = os.path.join(tmp_dir, base + ".pdf")
         if not os.path.exists(tmp_pdf):
-            raise SofficeError("LibreOffice không tạo được file PDF.")
+            raise SofficeError(S.LIBREOFFICE_NO_PDF)
 
         out_dir = os.path.dirname(abs_out)
         if out_dir:

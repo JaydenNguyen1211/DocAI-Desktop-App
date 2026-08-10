@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 from .icons import paperclip_icon, send_icon
 
 from ...logging_config import get_logger, log_call
+from ...strings import Common, Chat as S
 
 logger = get_logger(__name__)
 
@@ -42,7 +43,7 @@ class ChatPanel(QFrame):
         hdr.setFixedHeight(46)
         hdr_lay = QHBoxLayout(hdr)
         hdr_lay.setContentsMargins(16, 0, 16, 0)
-        title = QLabel("Chat AI")
+        title = QLabel(S.HEADER)
         title.setObjectName("chatHeader")
         hdr_lay.addWidget(title)
         lay.addWidget(hdr)
@@ -82,14 +83,14 @@ class ChatPanel(QFrame):
         self.attach_btn.setIcon(paperclip_icon())
         self.attach_btn.setIconSize(QSize(16, 16))
         self.attach_btn.setFixedSize(30, 30)
-        self.attach_btn.setToolTip("Đính kèm file")
+        self.attach_btn.setToolTip(S.ATTACH_TOOLTIP)
         self.attach_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.attach_btn.clicked.connect(self.attach_requested.emit)
         in_lay.addWidget(self.attach_btn)
 
         self.input_box = QLineEdit()
         self.input_box.setObjectName("inputBox")
-        self.input_box.setPlaceholderText("Nhập yêu cầu bằng tiếng Việt…")
+        self.input_box.setPlaceholderText(Common.INPUT_PLACEHOLDER)
         self.input_box.returnPressed.connect(self._submit)
         in_lay.addWidget(self.input_box, stretch=1)
 
@@ -216,7 +217,7 @@ class ChatPanel(QFrame):
 
     @log_call
     def start_ai(self):
-        self._stream_bubble = _Bubble("…", "bubbleAI")
+        self._stream_bubble = _Bubble(S.STREAM_PLACEHOLDER, "bubbleAI")
         self._add_row(self._stream_bubble, align_right=False)
 
     @log_call

@@ -19,6 +19,10 @@ from ..constants import CONVERT_TARGETS, CONVERT_EXT, CREATE_EXT, CREATE_TITLE
 from ..thread_worker import CallWorker
 
 from ...logging_config import get_logger, log_call
+from ...strings import (
+    SettingsDialog as S_Settings, ConvertDialog as S_Convert,
+    OverwriteDialog as S_Overwrite, NewDocumentDialog as S_NewDoc,
+)
 
 logger = get_logger(__name__)
 
@@ -46,7 +50,7 @@ class SettingsDialog(QDialog):
     @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Cài đặt & tài khoản")
+        self.setWindowTitle(S_Settings.TITLE)
         self.setModal(True)
         self.setFixedSize(640, 560)
         self.setStyleSheet("QDialog { background: white; }")
@@ -57,13 +61,14 @@ class SettingsDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(28, 24, 28, 20)
         lay.setSpacing(14)
-        lay.addLayout(_modal_header(self, "Cài đặt & tài khoản"))
+        lay.addLayout(_modal_header(self, S_Settings.TITLE))
 
         # ── Tab buttons ───────────────────────────────────────────────────────
         tabs_row = QHBoxLayout()
         tabs_row.setSpacing(8)
         self._tab_btns: list[QPushButton] = []
-        for tab_index, name in enumerate(["Tài khoản", "Doanh nghiệp", "Giới hạn"]):
+        for tab_index, name in enumerate(
+                [S_Settings.TAB_ACCOUNT, S_Settings.TAB_BUSINESS, S_Settings.TAB_LIMITS]):
             btn = QPushButton(name)
             btn.setProperty("class", "tabBtn")
             btn.setCheckable(True)
@@ -83,13 +88,13 @@ class SettingsDialog(QDialog):
         # ── Footer ────────────────────────────────────────────────────────────
         save_row = QHBoxLayout()
         save_row.addStretch()
-        save_btn = QPushButton("Lưu thay đổi")
+        save_btn = QPushButton(S_Settings.SAVE)
         save_btn.setProperty("class", "primaryBtn")
         save_btn.clicked.connect(self._save)
         save_row.addWidget(save_btn)
         lay.addLayout(save_row)
 
-        note = QLabel("* Thông tin doanh nghiệp dùng để AI tự điền khi soạn văn bản hành chính")
+        note = QLabel(S_Settings.FOOTNOTE)
         note.setObjectName("footnote")
         lay.addWidget(note)
 
@@ -112,9 +117,9 @@ class SettingsDialog(QDialog):
 
         self._acc_vals: dict[str, QLabel] = {}
         for key, label, initial in [
-            ("email", "Tài khoản", api_client.current_email() or "—"),
-            ("plan", "Gói hiện tại", "Đang tải…"),
-            ("quota", "Quota còn lại", "Đang tải…"),
+            ("email", S_Settings.FIELD_ACCOUNT, api_client.current_email() or "—"),
+            ("plan", S_Settings.FIELD_PLAN, S_Settings.LOADING),
+            ("quota", S_Settings.FIELD_QUOTA, S_Settings.LOADING),
         ]:
             row = QHBoxLayout()
             lbl = QLabel(label)
@@ -135,7 +140,7 @@ class SettingsDialog(QDialog):
 
         logout_row = QHBoxLayout()
         logout_row.addStretch()
-        logout_btn = QPushButton("Đăng xuất")
+        logout_btn = QPushButton(S_Settings.LOGOUT)
         logout_btn.setProperty("class", "secondaryBtn")
         logout_btn.clicked.connect(self._logout)
         logout_row.addWidget(logout_btn)
@@ -151,11 +156,12 @@ class SettingsDialog(QDialog):
 
     @log_call
     def _on_account(self, data: dict):
-        plan = "Pro" if data.get("plan") == "pro" else "Free"
+        plan = S_Settings.PLAN_PRO if data.get("plan") == "pro" else S_Settings.PLAN_FREE
         self._acc_vals["email"].setText(data.get("email") or "—")
         self._acc_vals["plan"].setText(plan)
         self._acc_vals["quota"].setText(
-            f"{data.get('quota_remaining', 0)} / {data.get('quota_limit', 0)} lượt")
+            S_Settings.QUOTA_VALUE.format(
+                remaining=data.get("quota_remaining", 0), limit=data.get("quota_limit", 0)))
         # Đồng bộ thông tin doanh nghiệp từ server vào ô nhập nếu có.
         biz = data.get("business") or {}
         for biz_key, edit in getattr(self, "biz_inputs", {}).items():
@@ -181,10 +187,10 @@ class SettingsDialog(QDialog):
         biz = cfg.get("business", {})
         self.biz_inputs: dict[str, QLineEdit] = {}
         for key, label in [
-            ("company_name", "Tên doanh nghiệp"),
-            ("tax_code", "Mã số thuế (MST)"),
-            ("address", "Địa chỉ"),
-            ("representative", "Người đại diện"),
+            ("company_name", S_Settings.FIELD_COMPANY_NAME),
+            ("tax_code", S_Settings.FIELD_TAX_CODE),
+            ("address", S_Settings.FIELD_ADDRESS),
+            ("representative", S_Settings.FIELD_REPRESENTATIVE),
         ]:
             lbl = QLabel(label)
             lbl.setObjectName("fieldLabel")
@@ -200,7 +206,7 @@ class SettingsDialog(QDialog):
         tab = QWidget()
         lay = QVBoxLayout(tab)
         lay.setContentsMargins(0, 10, 0, 0)
-        lbl = QLabel("Chi tiết quota theo gói sẽ có ở Phase 2.")
+        lbl = QLabel(S_Settings.LIMITS_PLACEHOLDER)
         lbl.setObjectName("fieldLabel")
         lay.addWidget(lbl)
         lay.addStretch()
@@ -227,7 +233,7 @@ class ConvertDialog(QDialog):
     @log_call
     def __init__(self, path: str, file_type: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Chuyển đổi định dạng")
+        self.setWindowTitle(S_Convert.TITLE)
         self.setModal(True)
         self.setFixedSize(500, 350 if file_type == "image" else 300)
         self.setStyleSheet("QDialog { background: white; }")
@@ -240,14 +246,14 @@ class ConvertDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(28, 24, 28, 20)
         lay.setSpacing(12)
-        lay.addLayout(_modal_header(self, "Chuyển đổi định dạng"))
+        lay.addLayout(_modal_header(self, S_Convert.TITLE))
 
         src = QLabel(self._file_name)
         src.setObjectName("fieldLabel")
         lay.addWidget(src)
         lay.addSpacing(6)
 
-        target_lbl = QLabel("Định dạng đích")
+        target_lbl = QLabel(S_Convert.TARGET_FORMAT_LABEL)
         target_lbl.setObjectName("fieldLabel")
         lay.addWidget(target_lbl)
 
@@ -259,11 +265,11 @@ class ConvertDialog(QDialog):
         # nguồn là ảnh. Ảnh thêm được xử lý SAU ảnh gốc, theo đúng thứ tự chọn.
         if file_type == "image":
             extra_row = QHBoxLayout()
-            self.extra_lbl = QLabel("Chưa chọn thêm ảnh nào")
+            self.extra_lbl = QLabel(S_Convert.NO_EXTRA_IMAGES)
             self.extra_lbl.setObjectName("fieldLabel")
             extra_row.addWidget(self.extra_lbl)
             extra_row.addStretch()
-            add_extra_btn = QPushButton("+ Thêm ảnh khác…")
+            add_extra_btn = QPushButton(S_Convert.ADD_EXTRA_IMAGE)
             add_extra_btn.setProperty("class", "secondaryBtn")
             add_extra_btn.clicked.connect(self._pick_extra_images)
             extra_row.addWidget(add_extra_btn)
@@ -285,11 +291,11 @@ class ConvertDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
-        self.cancel_btn = QPushButton("Hủy")
+        self.cancel_btn = QPushButton(S_Convert.CANCEL)
         self.cancel_btn.setProperty("class", "secondaryBtn")
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.cancel_btn)
-        self.convert_btn = QPushButton("Chuyển đổi")
+        self.convert_btn = QPushButton(S_Convert.CONVERT)
         self.convert_btn.setProperty("class", "primaryBtn")
         self.convert_btn.clicked.connect(self._start)
         btn_row.addWidget(self.convert_btn)
@@ -306,9 +312,9 @@ class ConvertDialog(QDialog):
     @log_call
     def _pick_extra_images(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Chọn thêm ảnh để gộp",
+            self, S_Convert.PICK_EXTRA_TITLE,
             str(Path(self._path).parent),
-            "Ảnh (*.png *.jpg *.jpeg *.webp *.bmp)",
+            S_Convert.IMAGE_FILTER,
         )
         already = {self._path, *self._extra_paths}
         for picked_path in paths:
@@ -317,7 +323,8 @@ class ConvertDialog(QDialog):
                 already.add(picked_path)
         extra_count = len(self._extra_paths)
         self.extra_lbl.setText(
-            "Chưa chọn thêm ảnh nào" if extra_count == 0 else f"Đã chọn thêm {extra_count} ảnh (gộp theo thứ tự)")
+            S_Convert.NO_EXTRA_IMAGES if extra_count == 0
+            else S_Convert.EXTRA_IMAGES_ADDED.format(count=extra_count))
 
     @log_call
     def _compute_out_path(self, target_ext: str) -> str:
@@ -332,7 +339,7 @@ class ConvertDialog(QDialog):
         self.cancel_btn.setEnabled(False)
         self.target_combo.setEnabled(False)
         self.progress.setVisible(True)
-        self.status_lbl.setText("Đang chuyển đổi…")
+        self.status_lbl.setText(S_Convert.CONVERTING)
         self.status_lbl.setVisible(True)
 
         target_ext = self._target_ext()
@@ -352,7 +359,7 @@ class ConvertDialog(QDialog):
     @log_call
     def _on_convert_err(self, msg: str):
         self.progress.setVisible(False)
-        self.status_lbl.setText(f"⚠ {msg}")
+        self.status_lbl.setText(S_Convert.ERROR_PREFIX.format(message=msg))
         self.convert_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)
         self.target_combo.setEnabled(True)
@@ -367,7 +374,7 @@ class OverwriteDialog(QDialog):
     @log_call
     def __init__(self, file_name: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Xác nhận ghi đè")
+        self.setWindowTitle(S_Overwrite.TITLE)
         self.setModal(True)
         self.setFixedSize(480, 230)
         self.setStyleSheet("QDialog { background: white; }")
@@ -384,14 +391,13 @@ class OverwriteDialog(QDialog):
         icon.setFixedSize(40, 28)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         head.addWidget(icon)
-        title = QLabel("File sẽ bị ghi đè")
+        title = QLabel(S_Overwrite.HEADING)
         title.setObjectName("modalTitle")
         head.addWidget(title)
         head.addStretch()
         lay.addLayout(head)
 
-        msg = QLabel(
-            f"Bạn có muốn lưu một bản sao trước khi\nAI ghi đè lên «{file_name}» không?")
+        msg = QLabel(S_Overwrite.MESSAGE.format(file_name=file_name))
         msg.setObjectName("fieldLabel")
         msg.setWordWrap(True)
         lay.addWidget(msg)
@@ -399,11 +405,11 @@ class OverwriteDialog(QDialog):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
-        save_copy = QPushButton("Lưu bản sao")
+        save_copy = QPushButton(S_Overwrite.SAVE_COPY)
         save_copy.setProperty("class", "secondaryBtn")
         save_copy.clicked.connect(self._pick_copy)
         btn_row.addWidget(save_copy, stretch=1)
-        overwrite = QPushButton("Ghi đè")
+        overwrite = QPushButton(S_Overwrite.OVERWRITE)
         overwrite.setProperty("class", "primaryBtn")
         overwrite.clicked.connect(self._pick_overwrite)
         btn_row.addWidget(overwrite, stretch=1)
@@ -439,7 +445,7 @@ class NewDocumentDialog(QDialog):
         self.result_path: str | None = None
         self.open_after: bool = False
 
-        title = CREATE_TITLE.get(file_type, "Tạo tài liệu mới")
+        title = CREATE_TITLE.get(file_type, S_NewDoc.DEFAULT_TITLE)
         self.setWindowTitle(title)
         self.setModal(True)
         self.setFixedSize(460, 460)
@@ -466,7 +472,7 @@ class NewDocumentDialog(QDialog):
         lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(4)
 
-        name_lbl = QLabel("Tên file")
+        name_lbl = QLabel(S_NewDoc.FILE_NAME_LABEL)
         name_lbl.setObjectName("fieldLabel")
         lay.addWidget(name_lbl)
 
@@ -491,7 +497,7 @@ class NewDocumentDialog(QDialog):
         lay.addWidget(self._name_error)
 
         lay.addSpacing(6)
-        loc_lbl = QLabel("Lưu vào")
+        loc_lbl = QLabel(S_NewDoc.SAVE_LOCATION_LABEL)
         loc_lbl.setObjectName("fieldLabel")
         lay.addWidget(loc_lbl)
 
@@ -504,7 +510,7 @@ class NewDocumentDialog(QDialog):
         self._path_lbl.setStyleSheet(
             "font-family:Consolas,monospace; font-size:11.5px; color:#4A4842; background:transparent;")
         lr_lay.addWidget(self._path_lbl, stretch=1)
-        change_btn = QPushButton("Đổi…")
+        change_btn = QPushButton(S_NewDoc.CHANGE)
         change_btn.setProperty("class", "secondaryBtn")
         change_btn.setFixedHeight(32)
         change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -513,7 +519,7 @@ class NewDocumentDialog(QDialog):
         lay.addWidget(loc_row)
 
         lay.addSpacing(6)
-        self.open_check = QCheckBox("Mở file để làm việc ngay sau khi tạo")
+        self.open_check = QCheckBox(S_NewDoc.OPEN_AFTER_CREATE)
         self.open_check.setChecked(True)
         lay.addWidget(self.open_check)
 
@@ -522,7 +528,7 @@ class NewDocumentDialog(QDialog):
         dup_lay = QVBoxLayout(self._dup_host)
         dup_lay.setContentsMargins(0, 10, 0, 0)
         dup_lay.setSpacing(7)
-        dup_warn = QLabel("⚠ Đã tồn tại file cùng tên trong thư mục này")
+        dup_warn = QLabel(S_NewDoc.DUPLICATE_WARNING)
         dup_warn.setStyleSheet("color:#C0392B; font-size:11.5px; background:transparent;")
         dup_lay.addWidget(dup_warn)
         self._dup_group = QButtonGroup(self)
@@ -532,7 +538,7 @@ class NewDocumentDialog(QDialog):
         self._rename_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._rename_btn.setStyleSheet(self._dup_option_qss())
         self._rename_btn.clicked.connect(lambda: self._pick_dup("rename"))
-        self._overwrite_btn = QPushButton("Ghi đè file cũ")
+        self._overwrite_btn = QPushButton(S_NewDoc.OVERWRITE_OLD)
         self._overwrite_btn.setCheckable(True)
         self._overwrite_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._overwrite_btn.setStyleSheet(self._dup_option_qss())
@@ -549,12 +555,12 @@ class NewDocumentDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         btn_row.addStretch()
-        cancel = QPushButton("Hủy")
+        cancel = QPushButton(S_NewDoc.CANCEL)
         cancel.setProperty("class", "secondaryBtn")
         cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel.clicked.connect(self.reject)
         btn_row.addWidget(cancel)
-        self.create_btn = QPushButton("Tạo file")
+        self.create_btn = QPushButton(S_NewDoc.CREATE_FILE)
         self.create_btn.setProperty("class", "primaryBtn")
         self.create_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.create_btn.clicked.connect(self._on_create)
@@ -589,7 +595,7 @@ class NewDocumentDialog(QDialog):
         head.addWidget(icon)
         text_col = QVBoxLayout()
         text_col.setSpacing(4)
-        title = QLabel("Không thể lưu vào thư mục này")
+        title = QLabel(S_NewDoc.PATH_ERROR_TITLE)
         title.setStyleSheet("font-size:16.5px; font-weight:700;")
         text_col.addWidget(title)
         self._path_error_msg = QLabel("")
@@ -600,12 +606,12 @@ class NewDocumentDialog(QDialog):
         lay.addLayout(head)
         lay.addStretch()
 
-        choose_btn = QPushButton("Chọn nơi lưu khác")
+        choose_btn = QPushButton(S_NewDoc.CHOOSE_OTHER_LOCATION)
         choose_btn.setProperty("class", "primaryBtn")
         choose_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         choose_btn.clicked.connect(self._pick_dir_from_error)
         lay.addWidget(choose_btn)
-        retry_btn = QPushButton("Thử lại")
+        retry_btn = QPushButton(S_NewDoc.RETRY)
         retry_btn.setProperty("class", "secondaryBtn")
         retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         retry_btn.clicked.connect(lambda: self._stack.setCurrentIndex(0))
@@ -625,9 +631,9 @@ class NewDocumentDialog(QDialog):
         name = self.name_edit.text().strip()
         forbidden = sorted(set(re.findall(FORBIDDEN_FILENAME_CHARS, name)))
         if not name:
-            self._set_name_error("Tên file không được để trống")
+            self._set_name_error(S_NewDoc.NAME_EMPTY)
         elif forbidden:
-            self._set_name_error(f"Tên file không được chứa {' '.join(forbidden)}")
+            self._set_name_error(S_NewDoc.NAME_FORBIDDEN.format(chars=" ".join(forbidden)))
         else:
             self._clear_name_error()
 
@@ -650,7 +656,7 @@ class NewDocumentDialog(QDialog):
 
     @log_call
     def _pick_dir(self):
-        path = QFileDialog.getExistingDirectory(self, "Chọn nơi lưu", self._save_dir)
+        path = QFileDialog.getExistingDirectory(self, S_NewDoc.PICK_SAVE_DIR_TITLE, self._save_dir)
         if path:
             self._save_dir = path
             self._path_lbl.setText(path)
@@ -659,7 +665,7 @@ class NewDocumentDialog(QDialog):
 
     @log_call
     def _pick_dir_from_error(self):
-        path = QFileDialog.getExistingDirectory(self, "Chọn nơi lưu", str(Path.home()))
+        path = QFileDialog.getExistingDirectory(self, S_NewDoc.PICK_SAVE_DIR_TITLE, str(Path.home()))
         if path:
             self._save_dir = path
             self._path_lbl.setText(path)
@@ -680,8 +686,7 @@ class NewDocumentDialog(QDialog):
 
         # EC2 — thư mục lưu không còn tồn tại / không có quyền ghi.
         if not Path(self._save_dir).is_dir() or not os.access(self._save_dir, os.W_OK):
-            self._path_error_msg.setText(
-                f"{self._save_dir} không còn kết nối, hoặc ứng dụng không có quyền ghi vào đây.")
+            self._path_error_msg.setText(S_NewDoc.PATH_ERROR_MSG.format(dir=self._save_dir))
             self._stack.setCurrentIndex(1)
             return
 
@@ -689,7 +694,7 @@ class NewDocumentDialog(QDialog):
 
         # EC1 — trùng tên: cần người dùng chọn cách xử lý trước khi tiếp tục.
         if target.exists() and self._dup_choice is None:
-            self._rename_btn.setText(f"Đổi tên thành {name} (1){self._ext}")
+            self._rename_btn.setText(S_NewDoc.RENAME_TO.format(name=f"{name} (1){self._ext}"))
             self._dup_host.setVisible(True)
             self.create_btn.setEnabled(False)
             return

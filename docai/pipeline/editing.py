@@ -15,6 +15,7 @@ Server (Claude) quyết định danh sách lệnh sửa; module này chỉ đi�
 from pathlib import Path
 
 from ..logging_config import get_logger, log_call
+from ..strings import Editing as S
 
 logger = get_logger(__name__)
 
@@ -67,20 +68,18 @@ class EditError(Exception):
 def check_editable(path: str, file_type: str | None) -> None:
     """Ném EditError nếu file không nằm trong phạm vi sửa được."""
     if file_type not in ("word", "excel", "ppt", "image"):
-        raise EditError("Bản này chỉ sửa được file Word, Excel, PowerPoint và ảnh.")
+        raise EditError(S.TYPE_NOT_EDITABLE)
 
     suffix = Path(path).suffix.lower()
     if suffix not in EDITABLE_EXT:
-        raise EditError(
-            f"Chưa sửa được định dạng {suffix} — hãy lưu lại thành "
-            f"{_MISSING_LIB_TARGET_EXT[file_type]} rồi mở lại."
-        )
+        raise EditError(S.FORMAT_NOT_EDITABLE.format(
+            suffix=suffix, target_ext=_MISSING_LIB_TARGET_EXT[file_type]))
     if file_type == "word" and DocxDocument is None:
-        raise EditError("Thiếu thư viện python-docx để sửa file Word.")
+        raise EditError(S.MISSING_DOCX_LIB)
     if file_type == "excel" and openpyxl is None:
-        raise EditError("Thiếu thư viện openpyxl để sửa file Excel.")
+        raise EditError(S.MISSING_OPENPYXL_LIB)
     if file_type == "ppt" and _pptx_lib is None:
-        raise EditError("Thiếu thư viện python-pptx để sửa file PowerPoint.")
+        raise EditError(S.MISSING_PPTX_LIB)
 
 
 @log_call
@@ -98,7 +97,7 @@ def document_outline(path: str, file_type: str | None) -> str:
     except EditError:
         raise
     except Exception as exc:  # noqa: BLE001 — file hỏng/không đọc được
-        raise EditError(f"Không đọc được cấu trúc file: {exc}")
+        raise EditError(S.OUTLINE_READ_FAILED.format(error=exc))
     return ""
 
 

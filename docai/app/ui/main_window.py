@@ -46,6 +46,7 @@ from .folder_scan import FolderScanWorker, ScannedFile
 from .save_output import save_staged_file
 
 from ...logging_config import get_logger, log_call
+from ...strings import MainWindow as S
 
 logger = get_logger(__name__)
 
@@ -230,13 +231,13 @@ class MainWindow(QMainWindow):
         đơn lẻ nào) — đính kèm KHÔNG chuyển sang chế độ 1-file, chỉ thêm file
         vào danh sách ứng viên cho `resolve_input_files()` (xem
         `_start_folder_task`), để không làm mất ngữ cảnh nhiều file đang có."""
-        path, _ = QFileDialog.getOpenFileName(self, "Chọn file", "", FILE_DIALOG_FILTER)
+        path, _ = QFileDialog.getOpenFileName(self, S.PICK_FILE_TITLE, "", FILE_DIALOG_FILTER)
         if not path:
             return
         if self._folder_context_name and not self._current_path:
             if path not in self._attached_files:
                 self._attached_files.append(path)
-            self.chat.add_system(f"Đã đính kèm «{Path(path).name}» vào ngữ cảnh")
+            self.chat.add_system(S.ATTACHED_TO_CONTEXT.format(name=Path(path).name))
             return
         self._open_file(path, fresh=False)
 
@@ -244,12 +245,12 @@ class MainWindow(QMainWindow):
     def _open_file(self, path: str, fresh: bool = True):
         path_obj = Path(path)
         if not path_obj.exists():
-            QMessageBox.warning(self, APP_NAME, f"File không tồn tại:\n{path}")
+            QMessageBox.warning(self, APP_NAME, S.FILE_NOT_FOUND.format(path=path))
             self._remove_recent(path)
             return
         ftype = EXT_MAP.get(path_obj.suffix.lower())
         if ftype is None:
-            QMessageBox.warning(self, APP_NAME, f"Định dạng chưa hỗ trợ: {path_obj.suffix}")
+            QMessageBox.warning(self, APP_NAME, S.FORMAT_UNSUPPORTED.format(ext=path_obj.suffix))
             return
 
         if fresh:
@@ -260,8 +261,8 @@ class MainWindow(QMainWindow):
             self._recent_outputs = []
 
         self._adopt_current_file(str(path_obj), ftype)
-        verb = "Đã mở" if fresh else "Đã đính kèm"
-        self.chat.add_system(f"{verb} «{path_obj.name}»")
+        template = S.OPENED_FILE if fresh else S.ATTACHED_FILE
+        self.chat.add_system(template.format(name=path_obj.name))
         self.chat.input_box.setFocus()
 
     @log_call
@@ -314,7 +315,7 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _open_folder(self):
-        path = QFileDialog.getExistingDirectory(self, "Chọn thư mục làm việc", "")
+        path = QFileDialog.getExistingDirectory(self, S.PICK_FOLDER_TITLE, "")
         if not path:
             return
 
@@ -358,7 +359,7 @@ class MainWindow(QMainWindow):
         self._recent_outputs = []
         self._folder_context_name = f"{folder_name} ({file_count} file)"
         self.stack.setCurrentIndex(1)
-        self.chat.add_system(f"Đã mở thư mục «{folder_name}» — {file_count} file")
+        self.chat.add_system(S.FOLDER_OPENED.format(name=folder_name, count=file_count))
         self.chat.input_box.setFocus()
 
     # ══ Thao tác file trong thư mục (tạo/xóa/đổi tên/mở 1 file) ═════════════
@@ -389,15 +390,12 @@ class MainWindow(QMainWindow):
     @log_call
     def _ask_folder_mgmt_clarify(self, kind: str):
         messages = {
-            "create": "Bạn muốn tạo file loại gì (Word/Excel/PowerPoint) và tên là gì? "
-                     'VD: Tạo file Excel mới tên "BaoCao.xlsx"',
-            "delete": "Chưa rõ bạn muốn xóa file nào — hãy nêu rõ tên file (có thể để trong "
-                     "ngoặc kép).",
-            "rename": 'Chưa rõ file cần đổi tên hoặc tên mới — VD: Đổi tên "A.docx" thành '
-                      '"B.docx"',
-            "open": "Chưa rõ bạn muốn mở file nào trong thư mục — hãy nêu rõ tên file.",
+            "create": S.CLARIFY_CREATE,
+            "delete": S.CLARIFY_DELETE,
+            "rename": S.CLARIFY_RENAME,
+            "open": S.CLARIFY_OPEN,
         }
-        self.chat.add_ai(messages.get(kind, "Bạn nói rõ hơn giúp mình nhé."))
+        self.chat.add_ai(messages.get(kind, S.CLARIFY_GENERIC))
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
@@ -415,7 +413,7 @@ class MainWindow(QMainWindow):
             path = create_empty_file(self._folder_path, intent.name, intent.ftype)
         except FolderOpError as exc:
             logger.info("Create-file intent failed for %r: %s", intent.name, exc.message)
-            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.add_system(S.ERROR_PREFIX.format(message=exc.message))
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
             return
@@ -424,8 +422,8 @@ class MainWindow(QMainWindow):
         self._refresh_folder_sidebar()
 
         badge = FILE_BADGE.get(intent.ftype, "FILE")
-        self.chat.add_system(f"✓ Đã tạo «{Path(path).name}» trong thư mục")
-        self.chat.add_file_card(Path(path).name, badge, note="Vừa tạo", full_path=path)
+        self.chat.add_system(S.CREATED_FILE.format(name=Path(path).name))
+        self.chat.add_file_card(Path(path).name, badge, note=S.JUST_CREATED_NOTE, full_path=path)
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
@@ -436,7 +434,7 @@ class MainWindow(QMainWindow):
             trashed = delete_file_with_undo(path)
         except FolderOpError as exc:
             logger.info("Delete-file intent failed for %r: %s", path, exc.message)
-            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.add_system(S.ERROR_PREFIX.format(message=exc.message))
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
             return
@@ -447,8 +445,8 @@ class MainWindow(QMainWindow):
             setattr(self, attr, [p for p in getattr(self, attr) if p != path])
         self._refresh_folder_sidebar()
 
-        self.chat.add_system(f"✓ Đã xóa «{name}» khỏi thư mục")
-        undo_btn = QPushButton("Hoàn tác")
+        self.chat.add_system(S.DELETED_FILE.format(name=name))
+        undo_btn = QPushButton(S.UNDO)
         undo_btn.setObjectName("undoDeleteBtn")
         undo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         undo_btn.clicked.connect(lambda: self._undo_delete(trashed, path, undo_btn))
@@ -463,13 +461,13 @@ class MainWindow(QMainWindow):
             restore_file(trashed_path, original_path)
         except FolderOpError as exc:
             logger.info("Undo-delete failed for %r: %s", original_path, exc.message)
-            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.add_system(S.ERROR_PREFIX.format(message=exc.message))
             return
         ext_type = EXT_MAP.get(Path(original_path).suffix.lower(), "")
         self._folder_files.append(
             ScannedFile(original_path, Path(original_path).name, "", ext_type))
         self._refresh_folder_sidebar()
-        self.chat.add_system(f"✓ Đã khôi phục «{Path(original_path).name}»")
+        self.chat.add_system(S.RESTORED_FILE.format(name=Path(original_path).name))
 
     @log_call
     def _do_rename_file(self, intent):
@@ -477,7 +475,7 @@ class MainWindow(QMainWindow):
             new_path = rename_file(intent.target_path, intent.new_name)
         except FolderOpError as exc:
             logger.info("Rename-file intent failed for %r: %s", intent.target_path, exc.message)
-            self.chat.add_system(f"⚠ {exc.message}")
+            self.chat.add_system(S.ERROR_PREFIX.format(message=exc.message))
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
             return
@@ -492,7 +490,7 @@ class MainWindow(QMainWindow):
             setattr(self, attr, [new_path if p == old_path else p for p in getattr(self, attr)])
         self._refresh_folder_sidebar()
 
-        self.chat.add_system(f"✓ Đã đổi tên thành «{Path(new_path).name}» — nội dung giữ nguyên")
+        self.chat.add_system(S.RENAMED_FILE.format(name=Path(new_path).name))
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
@@ -501,13 +499,13 @@ class MainWindow(QMainWindow):
         path = intent.target_path
         ftype = EXT_MAP.get(Path(path).suffix.lower())
         if ftype is None:
-            self.chat.add_system(f"⚠ Định dạng chưa hỗ trợ: {Path(path).suffix}")
+            self.chat.add_system(S.ERROR_PREFIX.format(message=S.FORMAT_UNSUPPORTED.format(ext=Path(path).suffix)))
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
             return
 
         self._adopt_current_file(path, ftype)
-        self.chat.add_system(f"Đã mở «{Path(path).name}»")
+        self.chat.add_system(S.OPENED_FILE.format(name=Path(path).name))
 
         if intent.remainder:
             self._start_edit(intent.remainder)
@@ -528,7 +526,7 @@ class MainWindow(QMainWindow):
         if resolve.needs_clarification:
             self.chat.add_ai(resolve.message)
             if resolve.suggestions:
-                card = SuggestionCard("File trong ngữ cảnh:", resolve.suggestions)
+                card = SuggestionCard(S.SUGGESTIONS_IN_CONTEXT, resolve.suggestions)
                 card.chip_clicked.connect(lambda name: self.chat.input_box.setText(
                     (self.chat.input_box.text() + " " + name).strip()))
                 self.chat.add_widget_row(card)
@@ -538,7 +536,7 @@ class MainWindow(QMainWindow):
 
         business = load_config().get("business", {})
         self.chat.start_ai()
-        self.chat.stream_ai("Đang xử lý…")
+        self.chat.stream_ai(S.PROCESSING)
 
         self._docset_worker = CallWorker(
             process_document_set, resolve.paths, text, None, list(self._history[:-1]), business)
@@ -558,7 +556,7 @@ class MainWindow(QMainWindow):
         for out_path in result.output_files:
             if out_path not in self._recent_outputs:
                 self._recent_outputs.append(out_path)
-        self._pending_reply = MockReply(text=result.analysis or "(Không có nội dung phân tích)")
+        self._pending_reply = MockReply(text=result.analysis or S.NO_ANALYSIS_CONTENT)
         self._start_stream(self._pending_reply.text)
 
     # ══ Sidebar / recent ═════════════════════════════════════════════════════
@@ -595,10 +593,10 @@ class MainWindow(QMainWindow):
     def _update_quota_label(self):
         plan = "Pro" if self._plan == "pro" else "Free"
         if self._quota_remaining is None or self._quota_limit is None:
-            self.quota_lbl.setText(f"Gói {plan}")
+            self.quota_lbl.setText(S.PLAN_LABEL.format(plan=plan))
         else:
-            self.quota_lbl.setText(
-                f"Gói {plan} · {self._quota_remaining}/{self._quota_limit} lượt")
+            self.quota_lbl.setText(S.PLAN_LABEL_WITH_QUOTA.format(
+                plan=plan, remaining=self._quota_remaining, limit=self._quota_limit))
         self.sidebar.set_plan(plan, self._quota_remaining, self._quota_limit)
 
     @log_call
@@ -656,7 +654,7 @@ class MainWindow(QMainWindow):
         self._pending_meta = (artifact, is_edit)
 
         self.chat.start_ai()
-        self.chat.stream_ai("Đang xử lý…")
+        self.chat.stream_ai(S.PROCESSING)
 
         # PDF đang mở → gửi kèm nội dung file để Claude đọc trực tiếp (không
         # chỉ tên file như trước) — nền tảng cho tóm tắt/trích xuất/OCR.
@@ -684,7 +682,7 @@ class MainWindow(QMainWindow):
 
         artifact, is_edit = getattr(self, "_pending_meta", (None, False))
         self._pending_reply = MockReply(
-            text=data.get("text", "") or "(Không có nội dung trả về)",
+            text=data.get("text", "") or S.NO_REPLY_CONTENT,
             artifact=artifact, is_edit=is_edit,
         )
         self._start_stream(self._pending_reply.text)
@@ -702,7 +700,7 @@ class MainWindow(QMainWindow):
     def _on_chat_error(self, message: str):
         self.chat.stream_ai("")
         self.chat.end_ai()
-        self.chat.add_system(f"⚠ {message}")
+        self.chat.add_system(S.ERROR_PREFIX.format(message=message))
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
         self._pending_reply = None
@@ -739,13 +737,13 @@ class MainWindow(QMainWindow):
             check_editable(path, ftype)
         except EditError as exc:
             logger.info("Edit request rejected for %r: %s", path, exc)
-            self.chat.add_system(f"⚠ {exc}")
+            self.chat.add_system(S.ERROR_PREFIX.format(message=exc))
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
             return
 
         self.chat.start_ai()
-        self.chat.stream_ai("Đang xử lý…")
+        self.chat.stream_ai(S.PROCESSING)
 
         self._edit_worker = CallWorker(
             controller.request_edit, text, path, ftype, list(self._history[:-1]))
@@ -764,7 +762,7 @@ class MainWindow(QMainWindow):
         self._pending_meta = (None, False)
         self._pending_edit_notes = data.get("notes") or []
         self._pending_reply = MockReply(
-            text=data.get("reply", "") or "Đã cập nhật file.")
+            text=data.get("reply", "") or S.FILE_UPDATED)
         self._start_stream(self._pending_reply.text)
 
     @log_call
@@ -774,7 +772,7 @@ class MainWindow(QMainWindow):
         mở; kết quả là 1 file "Bảng lương" mới, đi qua đúng cơ chế staging
         + file-card "Bấm để xem trước & lưu" như `process_document_set()`."""
         self.chat.start_ai()
-        self.chat.stream_ai("Đang tính lương…")
+        self.chat.stream_ai(S.CALCULATING_PAYROLL)
 
         self._payroll_worker = CallWorker(compute_payroll_file, path)
         self._payroll_worker.ok.connect(self._on_payroll_result)
@@ -788,17 +786,10 @@ class MainWindow(QMainWindow):
         if result.out_path not in self._recent_outputs:
             self._recent_outputs.append(result.out_path)
 
-        summary = (
-            f"Đã tính lương cho {len(result.employees)} nhân viên.\n\n"
-            f"· Tổng lương thực nhận (Net): {result.total_net:,.0f} đ\n"
-            f"· Tổng BHXH/BHYT/BHTN người lao động trích: {result.total_nld_insurance:,.0f} đ\n"
-            f"· Tổng chi phí doanh nghiệp (lương + bảo hiểm DN đóng): "
-            f"{result.total_dn_cost:,.0f} đ\n\n"
-            "Bấm vào file bên dưới để xem trước & lưu — sheet «Chi phí DN» có chi tiết "
-            "phần doanh nghiệp phải đóng.\n\n"
-            f"⚠ Số liệu tính theo mức BHXH/BHYT/BHTN/thuế TNCN «{result.rates_version}» — "
-            "nhờ kế toán đối chiếu lại trước khi dùng chính thức."
-        )
+        summary = S.PAYROLL_SUMMARY.format(
+            count=len(result.employees), net=result.total_net,
+            nld=result.total_nld_insurance, dn=result.total_dn_cost,
+            rates_version=result.rates_version)
         self._pending_reply = MockReply(text=summary)
         self._start_stream(self._pending_reply.text)
 
@@ -818,7 +809,7 @@ class MainWindow(QMainWindow):
         if notes and self._current_path:
             name = Path(self._current_path).name
             for note in notes:
-                self.chat.add_system(f"✓ «{name}» — {note}")
+                self.chat.add_system(S.EDIT_NOTE.format(name=name, note=note))
             self.preview.load_file(self._current_path, self._current_type, name)
             return
 
@@ -829,7 +820,7 @@ class MainWindow(QMainWindow):
         for out_path in outputs:
             badge = FILE_BADGE.get(EXT_MAP.get(Path(out_path).suffix.lower(), ""), "FILE")
             self.chat.add_file_card(
-                Path(out_path).name, badge, note="Bấm để xem trước & lưu", full_path=out_path)
+                Path(out_path).name, badge, note=S.STAGED_FILE_NOTE, full_path=out_path)
 
         if reply is None:
             return
@@ -849,11 +840,11 @@ class MainWindow(QMainWindow):
         dlg = OverwriteDialog(name, self)
         if dlg.exec():
             if dlg.choice == OverwriteDialog.OVERWRITE:
-                self.chat.add_system(f"✓ Đã ghi đè thay đổi lên «{name}»")
+                self.chat.add_system(S.OVERWRITTEN.format(name=name))
             else:
                 copy_name = suggest_save_name(name)
                 badge = FILE_BADGE.get(self._current_type or "", "FILE")
-                self.chat.add_system("✓ Đã lưu bản sao, giữ nguyên file gốc")
+                self.chat.add_system(S.COPY_KEPT_ORIGINAL)
                 self.chat.add_file_card(copy_name, badge)
 
     # ══ Modal: Chuyển đổi định dạng ══════════════════════════════════════════
@@ -872,11 +863,11 @@ class MainWindow(QMainWindow):
         if path_obj.is_dir():
             # PDF → Ảnh: nhiều file trong 1 thư mục, không phải 1 file đơn.
             count = len(list(path_obj.glob("*.png")))
-            self.chat.add_system(f"✓ Đã xuất {count} ảnh vào thư mục «{path_obj.name}»")
+            self.chat.add_system(S.EXPORTED_IMAGES.format(count=count, name=path_obj.name))
             self.chat.add_file_card(path_obj.name, "IMG", full_path=str(path_obj))
             return
         badge = FILE_BADGE.get(EXT_MAP.get(path_obj.suffix.lower(), ""), "FILE")
-        self.chat.add_system("✓ Chuyển đổi định dạng hoàn tất")
+        self.chat.add_system(S.CONVERT_DONE)
         self.chat.add_file_card(path_obj.name, badge, full_path=str(path_obj))
 
     # ══ Trích xuất toàn bộ văn bản PDF (cục bộ — không qua AI) ══════════════
@@ -889,21 +880,21 @@ class MainWindow(QMainWindow):
             content = extract_pdf(self._current_path).claude_content
         except Exception as exc:
             logger.exception("PDF text extraction failed for %s", self._current_path)
-            self.chat.add_system(f"⚠ Không trích xuất được văn bản: {exc}")
+            self.chat.add_system(S.EXTRACT_FAILED.format(error=exc))
             return
 
         default_name = str(Path(self._current_path).with_suffix(".txt"))
         out_path, _ = QFileDialog.getSaveFileName(
-            self, "Lưu văn bản đã trích xuất", default_name, "Văn bản (*.txt)")
+            self, S.SAVE_EXTRACTED_TITLE, default_name, S.TEXT_FILTER)
         if not out_path:
             return
         try:
             Path(out_path).write_text(content, encoding="utf-8")
         except OSError as exc:
             logger.exception("Failed to write extracted text to %s", out_path)
-            self.chat.add_system(f"⚠ Không ghi được file: {exc}")
+            self.chat.add_system(S.WRITE_FAILED.format(error=exc))
             return
-        self.chat.add_system(f"✓ Đã trích xuất văn bản vào «{Path(out_path).name}»")
+        self.chat.add_system(S.EXTRACTED_TO_FILE.format(name=Path(out_path).name))
         self.chat.add_file_card(Path(out_path).name, "TXT", full_path=out_path)
 
     # ══ Tạo tài liệu mới bằng chat (7.1–7.6, EC1–EC6) ═══════════════════════
@@ -918,10 +909,8 @@ class MainWindow(QMainWindow):
 
         if intent == "ambiguous":
             card = SuggestionCard(
-                "Bạn cho mình biết thêm để soạn đúng ý nhé:\n"
-                "· Nội dung cụ thể là gì? (vd: doanh thu, hợp đồng, giới thiệu…)\n"
-                "· Dạng văn bản (Word), bảng biểu (Excel) hay trình bày (PowerPoint)?",
-                ["Báo cáo doanh thu · Excel", "Báo cáo tiến độ · Word"],
+                S.AMBIGUOUS_CREATE_QUESTION,
+                [S.AMBIGUOUS_CREATE_CHIP_1, S.AMBIGUOUS_CREATE_CHIP_2],
             )
             card.chip_clicked.connect(self.chat.send_text)
             self.chat.add_widget_row(card)
@@ -931,8 +920,8 @@ class MainWindow(QMainWindow):
         # thật cho bước soạn nội dung.
         if self._plan == "free" and self._quota_remaining == 0:
             card = QuotaWarningCard(
-                f"Bạn đã dùng hết {self._quota_limit or 0} tác vụ AI miễn phí tháng này",
-                "Nâng cấp Pro để tiếp tục tạo file ngay, hoặc chờ tới kỳ làm mới.",
+                S.QUOTA_EXCEEDED.format(limit=self._quota_limit or 0),
+                S.QUOTA_HINT,
             )
             card.upgrade_clicked.connect(self._open_settings)
             self.chat.add_widget_row(card)
@@ -940,7 +929,7 @@ class MainWindow(QMainWindow):
 
         default_key = intent if intent in ("word", "excel", "ppt") else None
         page_count = guess_page_count(text)
-        self.chat.add_ai("Mình sẽ tạo giúp bạn. Xuất ra định dạng nào?")
+        self.chat.add_ai(S.ASK_FORMAT)
         picker = DocTypePicker(CREATE_TYPE_OPTIONS, default_key, page_count)
         picker.confirmed.connect(
             lambda file_type: self._on_doc_type_confirmed(file_type, text, page_count))
@@ -975,8 +964,8 @@ class MainWindow(QMainWindow):
         self.chat.set_enabled(False)
         self.preview.setVisible(True)
         self.stack.setCurrentIndex(1)
-        self.preview.pages.show_message("Đang soạn…")
-        self.chat.add_system(f"Đang soạn «{Path(final_path).name}»…")
+        self.preview.pages.show_message(S.GENERATING_PLAIN)
+        self.chat.add_system(S.GENERATING.format(name=Path(final_path).name))
 
         business = load_config().get("business", {})
         prompt = build_creation_prompt(file_type, user_text, page_count, business)
@@ -989,7 +978,7 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_gen_page_done(self, page_number: int, total: int, label: str):
-        self.preview.pages.show_message(f"Đang soạn {label} ({page_number}/{total})…")
+        self.preview.pages.show_message(S.GENERATING_PAGE.format(label=label, page=page_number, total=total))
 
     @log_call
     def _on_gen_finished(self, tmp_path: str, sections, quota: dict):
@@ -999,8 +988,7 @@ class MainWindow(QMainWindow):
             self._update_quota_label()
         self._cache_toast.show_usage(quota.get("usage"))
         self.chat.set_enabled(True)
-        self._show_preview_ready(
-            tmp_path, "Đã tạo xong. Bạn xem trước rồi lưu, hoặc bảo mình chỉnh tiếp.")
+        self._show_preview_ready(tmp_path, S.GEN_DONE)
 
     @log_call
     def _on_gen_failed(self, message: str, pages_done: int, partial_sections):
@@ -1013,7 +1001,7 @@ class MainWindow(QMainWindow):
         if partial_sections:
             card.save_partial_clicked.connect(lambda: self._save_partial_generation(partial_sections))
         self.chat.add_widget_row(card)
-        self.preview.pages.show_message(f"Tạo file thất bại:\n{message}")
+        self.preview.pages.show_message(S.GEN_FAILED_PREVIEW.format(message=message))
 
     @log_call
     def _retry_generation(self):
@@ -1032,16 +1020,14 @@ class MainWindow(QMainWindow):
             elif self._gen_file_type == "ppt":
                 create_pptx(partial_sections, tmp_path)
             else:
-                self.chat.add_system("⚠ Chưa thể lưu một phần cho file Excel.")
+                self.chat.add_system(S.CANNOT_SAVE_PARTIAL_EXCEL)
                 return
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to save partial generation (file_type=%s)",
                              self._gen_file_type)
-            self.chat.add_system(f"⚠ Không lưu được phần đã có: {exc}")
+            self.chat.add_system(S.SAVE_PARTIAL_FAILED.format(error=exc))
             return
-        self._show_preview_ready(
-            tmp_path,
-            f"Đã lưu tạm {len(partial_sections)} phần đã soạn được. Bạn xem trước rồi lưu.")
+        self._show_preview_ready(tmp_path, S.PARTIAL_SAVED.format(count=len(partial_sections)))
 
     @log_call
     def _show_preview_ready(self, tmp_path: str, message: str):
@@ -1051,8 +1037,7 @@ class MainWindow(QMainWindow):
         self.preview.load_file(tmp_path, self._gen_file_type, name)
         self.chat.add_ai(message)
 
-        labels = {"word": "Word", "excel": "Excel", "ppt": "PowerPoint"}
-        save_btn = QPushButton(f"Lưu file {labels.get(self._gen_file_type, '')}")
+        save_btn = QPushButton(S.SAVE_FILE_TYPE.format(label=S.SAVE_LABELS.get(self._gen_file_type, "")))
         save_btn.setObjectName("createConfirmBtn")
         save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         save_btn.clicked.connect(lambda: self._on_save_generated(save_btn))
@@ -1069,7 +1054,7 @@ class MainWindow(QMainWindow):
             shutil.move(tmp_path, final_path)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to move generated file %s -> %s", tmp_path, final_path)
-            self.chat.add_system(f"⚠ Không lưu được file: {exc}")
+            self.chat.add_system(S.SAVE_FAILED.format(error=exc))
             save_btn.setEnabled(True)
             return
 
@@ -1078,9 +1063,8 @@ class MainWindow(QMainWindow):
 
         name = Path(final_path).name
         badge = FILE_BADGE.get(self._gen_file_type, "FILE")
-        self.chat.add_system(
-            f"✓ Đã lưu «{name}» vào {Path(final_path).parent}. Bạn muốn chỉnh gì tiếp không?")
-        self.chat.add_file_card(name, badge, note="Vừa tạo")
+        self.chat.add_system(S.SAVED_AND_READY.format(name=name, dir=Path(final_path).parent))
+        self.chat.add_file_card(name, badge, note=S.JUST_CREATED_NOTE)
 
         if self._gen_open_after:
             _open_path(final_path)
@@ -1110,9 +1094,7 @@ class MainWindow(QMainWindow):
                 return
             self._open_file(str(path_obj))
             return
-        QMessageBox.information(
-            self, APP_NAME,
-            f"«{file_name}»\n\nFile kết quả sẽ được tạo thật khi tích hợp backend AI.")
+        QMessageBox.information(self, APP_NAME, S.MOCK_FILE_RESULT.format(name=file_name))
 
     @log_call
     def _is_staged_output(self, path_obj: Path) -> bool:
@@ -1135,8 +1117,7 @@ class MainWindow(QMainWindow):
             return
         self._folder_context_name = None
         self._adopt_current_file(saved_path, EXT_MAP.get(Path(saved_path).suffix.lower(), ""))
-        self.chat.add_system(
-            f"✓ Đã lưu «{Path(saved_path).name}» — bạn có thể tiếp tục ra lệnh trên file này")
+        self.chat.add_system(S.SAVED_CONTINUE.format(name=Path(saved_path).name))
 
     # ══ Dọn dẹp ══════════════════════════════════════════════════════════════
 

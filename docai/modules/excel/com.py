@@ -12,6 +12,7 @@ import os
 import sys
 
 from ...logging_config import get_logger, log_call
+from ...strings import ExcelCom as S
 
 logger = get_logger(__name__)
 
@@ -52,7 +53,7 @@ def export_workbook_pdf(path: str, out_path: str) -> str:
         import pythoncom
         import win32com.client
     except ImportError:
-        raise ExcelComError("Cần cài Microsoft Excel trên máy để chuyển đổi sang PDF.")
+        raise ExcelComError(S.MISSING_EXCEL)
 
     abs_path = os.path.abspath(path)
     abs_out = os.path.abspath(out_path)
@@ -66,7 +67,7 @@ def export_workbook_pdf(path: str, out_path: str) -> str:
         wb = excel.Workbooks.Open(abs_path, ReadOnly=True, UpdateLinks=0)
         wb.ExportAsFixedFormat(0, abs_out)  # 0 = xlTypePDF
     except Exception as exc:
-        raise ExcelComError(f"Không xuất được PDF từ Excel: {exc}")
+        raise ExcelComError(S.EXPORT_FAILED.format(error=exc))
     finally:
         try:
             if wb is not None:

@@ -17,6 +17,7 @@ from .folder_tree import FolderTree
 from .folder_scan import ScannedFile
 
 from ...logging_config import get_logger, log_call
+from ...strings import Common, Sidebar as S
 
 logger = get_logger(__name__)
 
@@ -67,7 +68,7 @@ class RecentItem(QFrame):
         self._delete_btn.setObjectName("recentDeleteBtn")
         self._delete_btn.setFixedSize(16, 16)
         self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._delete_btn.setToolTip("Xóa khỏi danh sách")
+        self._delete_btn.setToolTip(Common.REMOVE_FROM_LIST)
         self._delete_btn.setVisible(False)
         self._delete_btn.clicked.connect(lambda: self.remove_clicked.emit(self._path))
         title_row.addWidget(self._delete_btn)
@@ -162,7 +163,7 @@ class Sidebar(QFrame):
 
         self._seg_group = QButtonGroup(self)
         self._seg_group.setExclusive(True)
-        for key, label in (("file", "Tệp"), ("folder", "Thư mục")):
+        for key, label in (("file", S.TAB_FILE), ("folder", S.TAB_FOLDER)):
             btn = QPushButton(label)
             btn.setProperty("class", "segBtn")
             btn.setCheckable(True)
@@ -189,7 +190,7 @@ class Sidebar(QFrame):
 
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
-        self._plan_name = QLabel("Gói Free")
+        self._plan_name = QLabel(S.PLAN_LABEL.format(plan="Free"))
         self._plan_name.setObjectName("planName")
         head.addWidget(self._plan_name)
         head.addStretch()
@@ -206,7 +207,7 @@ class Sidebar(QFrame):
         self._plan_bar.setValue(0)
         pc.addWidget(self._plan_bar)
 
-        self._plan_hint = QLabel("tác vụ AI còn lại tháng này")
+        self._plan_hint = QLabel(S.PLAN_HINT)
         self._plan_hint.setObjectName("planHint")
         pc.addWidget(self._plan_hint)
 
@@ -230,13 +231,13 @@ class Sidebar(QFrame):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
 
-        new_btn = QPushButton("+  Trò chuyện mới")
+        new_btn = QPushButton(S.NEW_CHAT)
         new_btn.setObjectName("newFileBtn")
         new_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         new_btn.clicked.connect(self.new_chat.emit)
         lay.addWidget(new_btn)
 
-        recent_lbl = QLabel("Gần đây".upper())
+        recent_lbl = QLabel(S.RECENT_LABEL_BASE.upper())
         recent_lbl.setObjectName("recentLabel")
         lay.addWidget(recent_lbl)
 
@@ -278,7 +279,7 @@ class Sidebar(QFrame):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
 
-        btn = QPushButton("  Mở thư mục làm việc")
+        btn = QPushButton(S.OPEN_FOLDER_BTN)
         btn.setObjectName("openFolderBtn")
         btn.setIcon(folder_icon("#FFFFFF"))
         btn.setIconSize(QSize(15, 15))
@@ -294,8 +295,7 @@ class Sidebar(QFrame):
         icon.setPixmap(folder_icon("#B4B0A8", 20).pixmap(QSize(20, 20)))
         lay.addWidget(icon, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        hint = QLabel(
-            "Chưa mở thư mục nào.\nMở một thư mục rồi nói chuyện với AI về các file trong đó.")
+        hint = QLabel(S.FOLDER_EMPTY_HINT)
         hint.setObjectName("folderEmptyHint")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setWordWrap(True)
@@ -322,7 +322,7 @@ class Sidebar(QFrame):
         spin.setMaximum(0)   # chế độ "đang chạy" — vô định
         lay.addWidget(spin)
 
-        self._scan_status_lbl = QLabel("Đang quét thư mục…")
+        self._scan_status_lbl = QLabel(S.SCANNING)
         self._scan_status_lbl.setObjectName("folderScanStatus")
         self._scan_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._scan_status_lbl.setWordWrap(True)
@@ -373,7 +373,7 @@ class Sidebar(QFrame):
         bl.addWidget(path_lbl, stretch=1)
 
         if change_link:
-            change_btn = QPushButton("Đổi")
+            change_btn = QPushButton(S.CHANGE)
             change_btn.setObjectName("folderChangeBtn")
             change_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             change_btn.clicked.connect(self.change_folder.emit)
@@ -390,12 +390,12 @@ class Sidebar(QFrame):
         self._scan_path_lbl.setText(
             QFontMetrics(self._scan_path_lbl.font()).elidedText(
                 folder_path, Qt.TextElideMode.ElideMiddle, 140))
-        self._scan_status_lbl.setText("Đang quét thư mục…")
+        self._scan_status_lbl.setText(S.SCANNING)
 
     @log_call
     def update_folder_scan_progress(self, done: int, total: int):
         suffix = f" / {total}" if total else ""
-        self._scan_status_lbl.setText(f"Đang quét thư mục…\n{done}{suffix} file")
+        self._scan_status_lbl.setText(S.SCANNING_PROGRESS.format(done=done, suffix=suffix))
 
     @log_call
     def show_folder_ready(self, folder_name: str, files: list[ScannedFile], counts: dict):
@@ -404,7 +404,7 @@ class Sidebar(QFrame):
             QFontMetrics(self._ready_path_lbl.font()).elidedText(
                 folder_name, Qt.TextElideMode.ElideMiddle, 110))
         self._folder_tree.set_files(files, counts)
-        self._folder_footer_lbl.setText(f"{len(files)} file")
+        self._folder_footer_lbl.setText(S.FOLDER_FILE_COUNT.format(count=len(files)))
 
     # ── Danh sách gần đây ───────────────────────────────────────────────────────
 
@@ -418,7 +418,7 @@ class Sidebar(QFrame):
         self._items = []
 
         if not recent_paths:
-            empty = QLabel("Chưa có cuộc nào")
+            empty = QLabel(S.RECENT_EMPTY)
             empty.setObjectName("recentEmpty")
             self._list_lay.insertWidget(0, empty)
             return
@@ -435,7 +435,7 @@ class Sidebar(QFrame):
 
     @log_call
     def set_plan(self, plan_label: str, remaining, limit):
-        self._plan_name.setText(f"Gói {plan_label}")
+        self._plan_name.setText(S.PLAN_LABEL.format(plan=plan_label))
         if remaining is None or limit is None:
             self._plan_count.setText("")
             self._plan_bar.setMaximum(1)

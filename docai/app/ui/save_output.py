@@ -13,14 +13,15 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QWidget
 
 from ...logging_config import get_logger, log_call
+from ...strings import SaveOutput as S
 
 logger = get_logger(__name__)
 
 _FILTER_BY_EXT = {
-    ".docx": "Word (*.docx)",
-    ".xlsx": "Excel (*.xlsx)",
-    ".pdf": "PDF (*.pdf)",
-    ".pptx": "PowerPoint (*.pptx)",
+    ".docx": S.FILTER_DOCX,
+    ".xlsx": S.FILTER_XLSX,
+    ".pdf": S.FILTER_PDF,
+    ".pptx": S.FILTER_PPTX,
 }
 
 
@@ -30,10 +31,10 @@ def save_staged_file(parent: QWidget, staged_path: str, suggested_name: str = ""
     đã lưu, hoặc None nếu người dùng hủy / có lỗi ghi file."""
     staged = Path(staged_path)
     default_name = suggested_name or staged.name
-    file_filter = _FILTER_BY_EXT.get(staged.suffix.lower(), "Tất cả file (*.*)")
+    file_filter = _FILTER_BY_EXT.get(staged.suffix.lower(), S.FILTER_ALL)
 
     out_path, _ = QFileDialog.getSaveFileName(
-        parent, "Lưu file", default_name, file_filter)
+        parent, S.DIALOG_TITLE, default_name, file_filter)
     if not out_path:
         return None
     try:
