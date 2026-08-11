@@ -1,17 +1,18 @@
-# Theme sáng theo wireframe: nền kem, thẻ trắng, nút chính đen, accent xanh.
+# Light theme per the wireframe: cream background, white cards, black
+# primary button, blue accent.
 
 COLORS = {
-    "bg":        "#E4E3DC",   # nền ngoài (kem)
-    "surface":   "#FFFFFF",   # thẻ / panel trắng
+    "bg":        "#E4E3DC",   # outer background (cream)
+    "surface":   "#FFFFFF",   # white card / panel
     "sidebar":   "#F2F1EC",
     "border":    "#C9C8C0",
     "border_soft": "#DDDCD4",
     "text":      "#1A1A1A",
     "muted":     "#8A8A85",
-    "primary":   "#1A1A1A",   # nút đen
-    "accent":    "#2563EB",   # xanh link / selected
-    "accent_bg": "#E8F0FE",   # bong bóng user
-    "ai_bg":     "#F1F0EB",   # bong bóng AI
+    "primary":   "#1A1A1A",   # black button
+    "accent":    "#2563EB",   # link / selected blue
+    "accent_bg": "#E8F0FE",   # user bubble
+    "ai_bg":     "#F1F0EB",   # AI bubble
     "danger":    "#DC2626",
     "danger_bg": "#FEF2F2",
 }
@@ -82,10 +83,11 @@ QLabel#recentEmpty {{
     color: {COLORS['muted']}; font-size: 12px; padding-left: 6px;
 }}
 
-/* Vùng cuộn danh sách "Gần đây" / cây thư mục — nền trong suốt.
-   Đặt qua selector objectName (thay vì widget.setStyleSheet() riêng lẻ):
-   một stylesheet cục bộ gắn trực tiếp lên widget cha phá vỡ việc vẽ
-   background của các QLabel badge con bên trong (mất màu nền + bo góc). */
+/* Scroll area for the "Recent" list / folder tree — transparent background.
+   Set via the objectName selector (instead of a per-widget
+   widget.setStyleSheet()): a local stylesheet attached directly to the
+   parent widget breaks the background painting of the child badge
+   QLabels inside it (loses their background color + rounded corners). */
 QScrollArea#recentScroll, QWidget#recentListHost,
 QScrollArea#folderTreeScroll, QWidget#folderTreeListHost {{
     background: transparent;
@@ -97,8 +99,9 @@ QPushButton#recentDeleteBtn {{
 }}
 QPushButton#recentDeleteBtn:hover {{ background: #EAE8E3; color: #C0392B; }}
 
-/* Item lịch sử — thẻ 2 hàng: tiêu đề + (badge · tên file).
-   Nền trắng khi active/hover được vẽ bằng QPainter trong RecentItem.paintEvent. */
+/* History item — a 2-row card: title + (badge · file name).
+   The white active/hover background is painted via QPainter in
+   RecentItem.paintEvent. */
 QLabel#recentTitle {{
     background: transparent; font-size: 12.5px; font-weight: 600; color: #3A3833;
 }}
@@ -113,7 +116,7 @@ QLabel.fileBadgePdf   {{ color: #C0392B; background: #FBECEA; }}
 QLabel.fileBadgeXls   {{ color: #1F8A5B; background: #E6F4EC; }}
 QLabel.fileBadgeOther {{ color: #6E6A63; background: #EFEDE9; }}
 
-/* Thẻ gói dịch vụ + thanh tiến trình */
+/* Plan card + progress bar */
 QFrame#planCard {{
     background: {COLORS['surface']};
     border: 1px solid {COLORS['border_soft']};
@@ -129,7 +132,7 @@ QProgressBar#planBar::chunk {{
     background: {COLORS['accent']}; border-radius: 3px;
 }}
 
-/* ── Sidebar · chế độ Thư mục ────────────────────────────── */
+/* ── Sidebar · Folder mode ───────────────────────────────── */
 QPushButton#openFolderBtn {{
     background: {COLORS['primary']}; color: white; border: none;
     border-radius: 9px; padding: 10px 12px;
@@ -217,7 +220,7 @@ QPushButton#folderFooterAction {{
 }}
 QPushButton#folderFooterAction:hover {{ text-decoration: underline; }}
 
-/* ── Chat AI trung tâm (Trạng thái 1) ────────────────────── */
+/* ── Central AI chat (State 1) ───────────────────────────── */
 QFrame#centralChat {{ background: {COLORS['surface']}; }}
 QLabel#welcomeLogo {{
     background: {COLORS['accent_bg']};
@@ -266,7 +269,7 @@ QPushButton.chip {{
 }}
 QPushButton.chip:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
 
-/* ── Chế độ Thư mục · nội dung trung tâm (4.1 / 4.3 / 4.4) ── */
+/* ── Folder mode · central content (4.1 / 4.3 / 4.4) ─────── */
 QLabel#folderEmptyIcon {{
     background: {COLORS['accent_bg']};
     border: 1px solid #D4E3F8;
@@ -350,7 +353,7 @@ QPushButton.fileCard {{
 }}
 QPushButton.fileCard:hover {{ border-color: {COLORS['accent']}; }}
 
-/* ── Tạo tài liệu mới bằng chat (7.2, EC4, EC5, EC6) ────────── */
+/* ── Create new document via chat (7.2, EC4, EC5, EC6) ──────── */
 QPushButton.docTypeCard {{
     border: 1px solid #E0DDD7; border-radius: 11px; background: white;
 }}

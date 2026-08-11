@@ -1,9 +1,10 @@
-"""Cây file của thư mục làm việc (chế độ Thư mục) — lọc theo loại, nhóm theo
-thư mục con cấp 1. Dùng trong Sidebar, ở trạng thái "sẵn sàng".
+"""File tree for the working folder (Folder mode) — filter by type, grouped
+by top-level subfolder. Used in the Sidebar, in the "ready" state.
 
-Chỉ là DANH SÁCH THAM CHIẾU cho Chat Panel (luôn mở độc lập, không cần thao
-tác gì ở đây trước) — không có khái niệm tick chọn; file nào là input do
-người dùng nói rõ trong chat, xem `modules.common.doc_set.resolve_input_files`."""
+It's only a REFERENCE LIST for the Chat Panel (always opens independently,
+no action needed here first) — there's no checkbox-selection concept; which
+file is the input is decided by what the user says in chat, see
+`modules.common.doc_set.resolve_input_files`."""
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
@@ -30,7 +31,7 @@ _BADGE_CLASS = {
 
 
 class _GroupRow(QFrame):
-    """Dòng thư mục con — mở/thu gọn danh sách file bên trong."""
+    """A subfolder row — expands/collapses the file list inside it."""
 
     toggled = Signal()
 
@@ -80,7 +81,7 @@ class _GroupRow(QFrame):
 
 
 class _FileRow(QFrame):
-    """Dòng file — badge loại · tên file · xóa khỏi danh sách."""
+    """A file row — type badge · file name · remove from list."""
 
     remove_clicked = Signal()
 
@@ -116,9 +117,9 @@ class _FileRow(QFrame):
 
 
 class FolderTree(QWidget):
-    """Danh sách file quét được — lọc theo loại, chỉ để xem/tham chiếu."""
+    """List of scanned files — filterable by type, view/reference only."""
 
-    file_removed = Signal(str)         # đường dẫn file vừa bị xóa khỏi danh sách
+    file_removed = Signal(str)         # path of the file just removed from the list
 
     @log_call
     def __init__(self, parent=None):
@@ -153,13 +154,13 @@ class FolderTree(QWidget):
         self._group_rows: dict[str, list[_FileRow]] = {}
         self._active_filter: str | None = None
 
-    # ── Nạp danh sách file mới ─────────────────────────────────────────────
+    # ── Load a new file list ────────────────────────────────────────────────
 
     @log_call
     def set_files(self, files: list[ScannedFile], counts: dict[str, int]):
         self._clear()
 
-        # Chip lọc: "Tất cả" + 1 chip cho mỗi loại tìm thấy.
+        # Filter chips: "All" + 1 chip per type found.
         all_chip = self._make_chip(S.FILTER_ALL, None)
         all_chip.setChecked(True)
         self._chips_row.addWidget(all_chip)
@@ -169,7 +170,7 @@ class FolderTree(QWidget):
         self._chips_row.addStretch()
         self._active_filter = None
 
-        # Nhóm theo thư mục con cấp 1 — giữ thứ tự xuất hiện đầu tiên.
+        # Group by top-level subfolder — preserve first-seen order.
         order: list[str] = []
         by_group: dict[str, list[ScannedFile]] = {}
         for sf in files:
@@ -180,7 +181,7 @@ class FolderTree(QWidget):
 
         for group in order:
             items = by_group[group]
-            insert_at = self._list_lay.count() - 1   # trước stretch cuối danh sách
+            insert_at = self._list_lay.count() - 1   # before the trailing stretch at the list's end
             if group:
                 header = _GroupRow(group, len(items))
                 header.toggled.connect(lambda group_name=group: self._apply_visibility(group_name))
@@ -215,14 +216,14 @@ class FolderTree(QWidget):
         self._group_rows = {}
         self._chips = {}
 
-    # ── Chip lọc theo loại ──────────────────────────────────────────────────
+    # ── Type filter chips ────────────────────────────────────────────────────
 
     @log_call
     def _make_chip(self, label: str, ext_type: str | None) -> QPushButton:
         chip = QPushButton(label)
         chip.setProperty("class", "filterChip")
         chip.setCheckable(True)
-        chip.setFixedHeight(22)   # bằng 2× border-radius — bo tròn đủ vòng như thiết kế
+        chip.setFixedHeight(22)   # equal to 2× border-radius — fully rounded, per design
         chip.setCursor(Qt.CursorShape.PointingHandCursor)
         chip.clicked.connect(lambda _, chip_ext_type=ext_type: self._set_filter(chip_ext_type))
         self._chip_group.addButton(chip)
@@ -248,7 +249,7 @@ class FolderTree(QWidget):
         if header is not None:
             header.setVisible(any_visible)
 
-    # ── Xóa 1 file khỏi danh sách ─────────────────────────────────────────────
+    # ── Remove a file from the list ──────────────────────────────────────────
 
     @log_call
     def _remove_row(self, row: "_FileRow"):

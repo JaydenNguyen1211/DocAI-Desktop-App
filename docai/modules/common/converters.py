@@ -1,14 +1,17 @@
-"""Chuyển đổi định dạng thật — thay `ConvertDialog` cũ (mock `QTimer`, không hề
-đọc/ghi file nào cả, xem lịch sử `app/ui/modals.py`). Mỗi hàm nhận đường dẫn nguồn
-+ đường dẫn đích tường minh, trả về đường dẫn đích khi thành công, ném
-`ConvertError` (thông báo tiếng Việt) khi thất bại.
+"""Real format conversion — replaces the old `ConvertDialog` (mock `QTimer`,
+never actually read/wrote any file, see history in `app/ui/modals.py`). Each
+function takes an explicit source path + destination path, returns the
+destination path on success, raises `ConvertError` (Vietnamese message) on
+failure.
 
-`ConvertError` kế thừa `ApiError` để `app.thread_worker.CallWorker` tự phát đúng
-thông báo (không bọc thêm tiền tố "Lỗi không xác định:") — xem cách
-`CallWorker.run()` phân biệt `ApiError` với lỗi khác.
+`ConvertError` inherits from `ApiError` so `app.thread_worker.CallWorker`
+emits the right message automatically (without wrapping it in an "Unknown
+error:" prefix) — see how `CallWorker.run()` distinguishes `ApiError` from
+other errors.
 
-Phần lớn hàm chạy cục bộ, không cần mạng — riêng `pdf_to_excel_file()` cần gọi
-AI (Claude đọc PDF trực tiếp qua `/extract_table`) nên cần mạng + quota.
+Most functions run locally, no network needed — only `pdf_to_excel_file()`
+needs an AI call (Claude reads the PDF directly via `/extract_table`), so it
+needs network + quota.
 """
 import base64
 from pathlib import Path
@@ -35,20 +38,20 @@ _IMG_FORMAT_BY_EXT = {
 
 
 class ConvertError(api_client.ApiError):
-    """Không chuyển đổi được — thông báo tiếng Việt cho người dùng."""
+    """Conversion failed — message shown to the user in Vietnamese."""
 
     @log_call
     def __init__(self, message: str):
         super().__init__(message, "convert_failed")
 
 
-# ── Word/Excel/PPT → PDF (COM) ──────────────────────────────────────────────
+# ── Word/Excel/PPT → PDF (COM) ────────────────────────────────────────────────
 
 @log_call
 def word_to_pdf_file(path: str, out_path: str) -> str:
     try:
         return word_to_pdf(path, out_path)
-    except Exception as exc:  # noqa: BLE001 — mọi lỗi COM đều quy về 1 thông báo
+    except Exception as exc:  # noqa: BLE001 — all COM errors collapse to one message
         raise ConvertError(S.WORD_TO_PDF_FAILED.format(error=exc))
 
 
@@ -68,13 +71,14 @@ def excel_to_pdf_file(path: str, out_path: str) -> str:
         raise ConvertError(str(exc))
 
 
-# ── PDF → Word/Excel/Ảnh ─────────────────────────────────────────────────────
+# ── PDF → Word/Excel/Image ────────────────────────────────────────────────────
 
 @log_call
 def pdf_to_word_file(path: str, out_path: str) -> str:
-    """Tái tạo nội dung cơ bản: đọc đúng thứ tự chữ, KHÔNG giữ bố cục/style
-    gốc. Chỉ hoạt động với PDF có lớp chữ — PDF quét ảnh thuần túy nên chuyển
-    qua luồng OCR ảnh (Xử lý ảnh) thay vì chức năng này."""
+    """Recreates basic content: reads the text in the correct order, does NOT
+    keep the original layout/style. Only works with PDFs that have a text
+    layer — a pure scanned-image PDF should go through the image OCR flow
+    (Image processing) instead of this function."""
     pages = pdf_page_texts(path)
     if not any(page_text.strip() for page_text in pages):
         raise ConvertError(S.PDF_NO_TEXT_LAYER)
@@ -96,9 +100,10 @@ def pdf_to_word_file(path: str, out_path: str) -> str:
 
 @log_call
 def pdf_to_excel_file(path: str, out_path: str) -> str:
-    """Nhờ Claude đọc trực tiếp PDF (kể cả bản quét ảnh) rồi trích xuất bảng —
-    cần mạng + quota. Dùng lại đúng quy ước "--- Sheet: X ---" + CSV mà
-    `create_excel_from_text()` đã parse sẵn cho luồng "tạo tài liệu mới"."""
+    """Have Claude read the PDF directly (even a scanned copy) then extract
+    the table — needs network + quota. Reuses the same "--- Sheet: X ---" +
+    CSV convention that `create_excel_from_text()` already parses for the
+    "create a new document" flow."""
     data = Path(path).read_bytes()
     attachment = {
         "kind": "pdf", "media_type": "application/pdf",
@@ -131,7 +136,7 @@ def pdf_to_images(path: str, out_dir: str) -> list[str]:
     return out_paths
 
 
-# ── Ảnh → PDF / đổi định dạng ────────────────────────────────────────────────
+# ── Image → PDF / format conversion ─────────────────────────────────────────
 
 @log_call
 def image_to_pdf_file(paths: list[str], out_path: str) -> str:
@@ -152,9 +157,9 @@ def image_to_pdf_file(paths: list[str], out_path: str) -> str:
 
 @log_call
 def image_to_word_file(paths: list[str], out_path: str) -> str:
-    """OCR từng ảnh qua Claude Vision (`/extract_text`) rồi dựng thành 1 file
-    Word chỉnh sửa được — mỗi ảnh 1 trang riêng (ngắt trang giữa các ảnh), giữ
-    đúng cách ngắt đoạn AI đọc được. Cần mạng + quota, tốn 1 lượt gọi/ảnh."""
+    """OCR each image via Claude Vision (`/extract_text`) then build 1 editable
+    Word file — each image its own page (page break between images), keeping
+    the paragraph breaks the AI read. Needs network + quota, costs 1 call/image."""
     if not paths:
         raise ConvertError(S.NO_IMAGES_TO_CONVERT)
     from docx import Document as DocxDocument
@@ -182,11 +187,13 @@ def image_to_word_file(paths: list[str], out_path: str) -> str:
 
 @log_call
 def image_to_searchable_pdf_file(paths: list[str], out_path: str) -> str:
-    """Xuất PDF từ ảnh chụp kèm lớp văn bản OCR ẩn (`render_mode=3` — không vẽ
-    ra nhưng vẫn chọn/tìm/copy được) — khác `image_to_pdf_file()` chỉ nhúng
-    ảnh thô. Lớp text phủ theo trang, KHÔNG khớp chính xác vị trí từng chữ vì
-    Claude Vision trả về văn bản thuần chứ không kèm tọa độ — vẫn đủ để tìm
-    kiếm/copy toàn văn. Cần mạng + quota, tốn 1 lượt gọi/ảnh."""
+    """Export a PDF from photos with a hidden OCR text layer (`render_mode=3`
+    — not drawn but still selectable/searchable/copyable) — unlike
+    `image_to_pdf_file()` which only embeds the raw image. The text layer
+    covers the whole page, does NOT match each character's exact position
+    since Claude Vision returns plain text with no coordinates — still
+    enough for full-text search/copy. Needs network + quota, costs 1
+    call/image."""
     if not paths:
         raise ConvertError(S.NO_IMAGES_TO_CONVERT)
     import fitz
@@ -214,9 +221,9 @@ def image_to_searchable_pdf_file(paths: list[str], out_path: str) -> str:
 
 @log_call
 def image_to_excel_file(path: str, out_path: str) -> str:
-    """Nhờ Claude đọc ảnh (hóa đơn/hợp đồng chụp) qua Vision rồi trích xuất
-    bảng — cần mạng + quota. Cùng /extract_table và cùng quy ước "--- Sheet:
-    X ---" + CSV như pdf_to_excel_file()."""
+    """Have Claude read the image (photographed invoice/contract) via Vision
+    then extract the table — needs network + quota. Same /extract_table and
+    same "--- Sheet: X ---" + CSV convention as pdf_to_excel_file()."""
     data_b64, media_type = image_ops.b64_for_vision(path)
     attachment = {"kind": "image", "media_type": media_type, "data_b64": data_b64}
     result = api_client.extract_table(attachment)
@@ -242,18 +249,19 @@ def image_convert_format(path: str, out_path: str) -> str:
     return out_path
 
 
-# ── Điểm vào chung cho ConvertDialog ─────────────────────────────────────────
+# ── Common entry point for ConvertDialog ─────────────────────────────────────
 
 @log_call
 def convert_file(path: str, source_type: str, target_ext: str, out_path: str,
                   extra_paths: list[str] | None = None, searchable: bool = False) -> str:
-    """`source_type`: "word"|"excel"|"ppt"|"pdf"|"image". Trả về đường dẫn kết
-    quả — với PDF→Ảnh, `out_path` là THƯ MỤC chứa các trang PNG.
+    """`source_type`: "word"|"excel"|"ppt"|"pdf"|"image". Returns the result
+    path — for PDF→Image, `out_path` is a FOLDER holding the PNG pages.
 
-    `extra_paths` (chỉ áp dụng khi source_type="image", target .pdf/.docx):
-    ảnh thêm ngoài `path` để gộp thành 1 file nhiều trang theo đúng thứ tự.
-    `searchable` (chỉ áp dụng khi target .pdf): True → PDF có lớp text OCR ẩn
-    (`image_to_searchable_pdf_file`), False → nhúng ảnh thô như cũ.
+    `extra_paths` (only applies when source_type="image", target .pdf/.docx):
+    additional images besides `path` to merge into a single multi-page file,
+    in order. `searchable` (only applies when target is .pdf): True → PDF
+    with a hidden OCR text layer (`image_to_searchable_pdf_file`), False →
+    embeds the raw image as before.
     """
     if source_type in ("word", "excel", "ppt") and target_ext == ".pdf":
         fn = {"word": word_to_pdf_file, "excel": excel_to_pdf_file, "ppt": ppt_to_pdf_file}[source_type]

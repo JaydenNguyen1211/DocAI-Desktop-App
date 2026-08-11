@@ -1,5 +1,5 @@
-"""Modal phụ: Cài đặt & tài khoản · Chuyển đổi định dạng · Xác nhận ghi đè ·
-Tạo tài liệu mới."""
+"""Secondary modals: Settings & account · Convert format · Confirm overwrite ·
+Create new document."""
 import os
 import re
 from pathlib import Path
@@ -42,7 +42,7 @@ def _modal_header(dialog: QDialog, title: str) -> QHBoxLayout:
     return row
 
 
-# ══ 4.4 Cài đặt & tài khoản ══════════════════════════════════════════════════
+# ══ 4.4 Settings & account ════════════════════════════════════════════════
 
 class SettingsDialog(QDialog):
     logged_out = Signal()
@@ -106,7 +106,7 @@ class SettingsDialog(QDialog):
             btn.setChecked(btn_index == idx)
         self._stack.setCurrentIndex(idx)
 
-    # ── Tab Tài khoản ─────────────────────────────────────────────────────────
+    # ── Account tab ──────────────────────────────────────────────────────────
 
     @log_call
     def _build_account_tab(self, cfg: dict) -> QWidget:
@@ -162,7 +162,7 @@ class SettingsDialog(QDialog):
         self._acc_vals["quota"].setText(
             S_Settings.QUOTA_VALUE.format(
                 remaining=data.get("quota_remaining", 0), limit=data.get("quota_limit", 0)))
-        # Đồng bộ thông tin doanh nghiệp từ server vào ô nhập nếu có.
+        # Sync business info from the server into the input fields, if present.
         biz = data.get("business") or {}
         for biz_key, edit in getattr(self, "biz_inputs", {}).items():
             if biz.get(biz_key) and not edit.text().strip():
@@ -174,7 +174,7 @@ class SettingsDialog(QDialog):
         self.logged_out.emit()
         self.accept()
 
-    # ── Tab Doanh nghiệp ──────────────────────────────────────────────────────
+    # ── Business tab ─────────────────────────────────────────────────────────
 
     @log_call
     def _build_business_tab(self, cfg: dict) -> QWidget:
@@ -199,7 +199,7 @@ class SettingsDialog(QDialog):
             form.addRow(lbl, edit)
         return tab
 
-    # ── Tab Giới hạn ──────────────────────────────────────────────────────────
+    # ── Limits tab ────────────────────────────────────────────────────────────
 
     @log_call
     def _build_limits_tab(self, cfg: dict) -> QWidget:
@@ -216,19 +216,19 @@ class SettingsDialog(QDialog):
     def _save(self):
         business = {field_key: field_edit.text().strip() for field_key, field_edit in self.biz_inputs.items()}
         cfg = load_config()
-        cfg["business"] = business   # lưu cục bộ để chat dùng ngay
+        cfg["business"] = business   # save locally so chat can use it right away
         save_config(cfg)
-        # Đồng bộ lên server (nền); không chặn đóng dialog.
+        # Sync to the server (background); don't block closing the dialog.
         self._biz_worker = CallWorker(api_client.update_business, business)
         self._biz_worker.err.connect(lambda _msg: None)
         self._biz_worker.start()
         self.accept()
 
 
-# ══ 4.5 Chuyển đổi định dạng ═════════════════════════════════════════════════
+# ══ 4.5 Convert format ═══════════════════════════════════════════════════
 
 class ConvertDialog(QDialog):
-    conversion_done = Signal(str)   # đường dẫn kết quả thật (file hoặc thư mục — xem PDF→Ảnh)
+    conversion_done = Signal(str)   # real result path (file or folder — see PDF→Image)
 
     @log_call
     def __init__(self, path: str, file_type: str, parent=None):
@@ -261,8 +261,9 @@ class ConvertDialog(QDialog):
         self.target_combo.addItems(CONVERT_TARGETS.get(file_type, ["PDF (.pdf)"]))
         lay.addWidget(self.target_combo)
 
-        # Gộp nhiều ảnh thành 1 file (PDF/Word nhiều trang) — chỉ áp dụng khi
-        # nguồn là ảnh. Ảnh thêm được xử lý SAU ảnh gốc, theo đúng thứ tự chọn.
+        # Merge multiple images into 1 multi-page file (PDF/Word) — only
+        # applies when the source is an image. Extra images are processed
+        # AFTER the original, in the order they were picked.
         if file_type == "image":
             extra_row = QHBoxLayout()
             self.extra_lbl = QLabel(S_Convert.NO_EXTRA_IMAGES)
@@ -280,8 +281,8 @@ class ConvertDialog(QDialog):
         self.status_lbl.setVisible(False)
         lay.addWidget(self.status_lbl)
 
-        # Không có % thật cho chuyển đổi qua COM/AI — dùng chế độ không xác
-        # định (marquee) thay vì thanh tiến trình giả trước đây.
+        # There's no real % for COM/AI-based conversion — use an indeterminate
+        # (marquee) mode instead of the fake progress bar from before.
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setFixedHeight(8)
@@ -365,7 +366,7 @@ class ConvertDialog(QDialog):
         self.target_combo.setEnabled(True)
 
 
-# ══ 4.6 Xác nhận ghi đè file ═════════════════════════════════════════════════
+# ══ 4.6 Confirm file overwrite ═══════════════════════════════════════════
 
 class OverwriteDialog(QDialog):
     SAVE_COPY = 1
@@ -426,14 +427,15 @@ class OverwriteDialog(QDialog):
         self.accept()
 
 
-# ══ 7.3 Tạo tài liệu mới bằng chat — đặt tên & chọn nơi lưu ══════════════════
+# ══ 7.3 Create new document via chat — name & save location ═══════════════
 
 class NewDocumentDialog(QDialog):
-    """Đặt tên + nơi lưu trước khi AI soạn file mới. Xử lý tại chỗ:
-    EC3 (tên trống/ký tự cấm) chặn nút Tạo file; EC1 (trùng tên) hiện lựa
-    chọn đổi tên/ghi đè; EC2 (nơi lưu không hợp lệ) chuyển sang trạng thái
-    lỗi toàn màn hình của dialog. Sau `exec()` thành công: `.result_path`
-    (đường dẫn cuối cùng) và `.open_after` (có mở file ngay không)."""
+    """Set the name + save location before the AI writes the new file.
+    Handled inline: EC3 (empty name/forbidden characters) blocks the Create
+    File button; EC1 (duplicate name) shows a rename/overwrite choice; EC2
+    (invalid save location) switches the dialog to a full-screen error
+    state. After a successful `exec()`: `.result_path` (the final path)
+    and `.open_after` (whether to open the file right away)."""
 
     @log_call
     def __init__(self, file_type: str, suggested_name: str, default_dir: str, parent=None):
@@ -463,7 +465,7 @@ class NewDocumentDialog(QDialog):
 
         self._validate_name()
 
-    # ── Trang chính: tên + nơi lưu ───────────────────────────────────────────
+    # ── Main page: name + save location ─────────────────────────────────────
 
     @log_call
     def _build_form_page(self, suggested_name: str) -> QWidget:
@@ -523,7 +525,8 @@ class NewDocumentDialog(QDialog):
         self.open_check.setChecked(True)
         lay.addWidget(self.open_check)
 
-        # EC1 — trùng tên: ẩn mặc định, hiện khi bấm "Tạo file" mà trùng.
+        # EC1 — duplicate name: hidden by default, shown when "Create File" is
+        # clicked and a duplicate is found.
         self._dup_host = QWidget()
         dup_lay = QVBoxLayout(self._dup_host)
         dup_lay.setContentsMargins(0, 10, 0, 0)
@@ -577,7 +580,7 @@ class NewDocumentDialog(QDialog):
             "QPushButton:checked { border-color:#2A6FDB; background:#EAF1FC; }"
         )
 
-    # ── Trang lỗi nơi lưu (EC2) ──────────────────────────────────────────────
+    # ── Save-location error page (EC2) ──────────────────────────────────────
 
     @log_call
     def _build_path_error_page(self) -> QWidget:
@@ -618,7 +621,7 @@ class NewDocumentDialog(QDialog):
         lay.addWidget(retry_btn)
         return page
 
-    # ── Validate tên (EC3) ───────────────────────────────────────────────────
+    # ── Validate the name (EC3) ─────────────────────────────────────────────
 
     @log_call
     def _on_name_changed(self, _text: str):
@@ -652,7 +655,7 @@ class NewDocumentDialog(QDialog):
         self._name_error.setVisible(False)
         self.create_btn.setEnabled(True)
 
-    # ── Chọn / đổi nơi lưu ────────────────────────────────────────────────────
+    # ── Pick / change the save location ─────────────────────────────────────
 
     @log_call
     def _pick_dir(self):
@@ -671,7 +674,7 @@ class NewDocumentDialog(QDialog):
             self._path_lbl.setText(path)
         self._stack.setCurrentIndex(0)
 
-    # ── Tạo file ──────────────────────────────────────────────────────────────
+    # ── Create the file ──────────────────────────────────────────────────────
 
     @log_call
     def _pick_dup(self, choice: str):
@@ -684,7 +687,7 @@ class NewDocumentDialog(QDialog):
         if not name or re.search(FORBIDDEN_FILENAME_CHARS, name):
             return
 
-        # EC2 — thư mục lưu không còn tồn tại / không có quyền ghi.
+        # EC2 — the save folder no longer exists / no write permission.
         if not Path(self._save_dir).is_dir() or not os.access(self._save_dir, os.W_OK):
             self._path_error_msg.setText(S_NewDoc.PATH_ERROR_MSG.format(dir=self._save_dir))
             self._stack.setCurrentIndex(1)
@@ -692,7 +695,7 @@ class NewDocumentDialog(QDialog):
 
         target = Path(self._save_dir) / f"{name}{self._ext}"
 
-        # EC1 — trùng tên: cần người dùng chọn cách xử lý trước khi tiếp tục.
+        # EC1 — duplicate name: need the user to choose how to handle it before continuing.
         if target.exists() and self._dup_choice is None:
             self._rename_btn.setText(S_NewDoc.RENAME_TO.format(name=f"{name} (1){self._ext}"))
             self._dup_host.setVisible(True)

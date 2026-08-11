@@ -1,4 +1,4 @@
-"""Icon SVG nội tuyến → QIcon (theo bộ icon trong thiết kế)."""
+"""Inline SVG icons → QIcon (matching the icon set from the design)."""
 from PySide6.QtCore import QByteArray, Qt
 from PySide6.QtGui import QIcon, QPixmap, QPainter
 from PySide6.QtSvg import QSvgRenderer
@@ -7,7 +7,7 @@ from ...logging_config import get_logger, log_call
 
 logger = get_logger(__name__)
 
-# Đường path lấy đúng từ file thiết kế (Detailed Flows).
+# Paths taken directly from the design file (Detailed Flows).
 _PAPERCLIP = ('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 '
               '5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>')
 _ARROW_UP = ('<line x1="12" y1="19" x2="12" y2="5"/>'
@@ -27,7 +27,7 @@ def _svg(inner: str, color: str) -> str:
 @log_call
 def _render(svg: str, size: int) -> QIcon:
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
-    # Vẽ ở 2× cho sắc nét trên màn hình HiDPI.
+    # Render at 2× for sharpness on HiDPI screens.
     pm = QPixmap(size * 2, size * 2)
     pm.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pm)

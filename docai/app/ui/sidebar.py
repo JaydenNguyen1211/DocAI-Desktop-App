@@ -1,7 +1,7 @@
-"""Sidebar — segmented Tệp/Thư mục · Trò chuyện mới · lịch sử gần đây · gói dịch vụ.
+"""Sidebar — File/Folder segmented control · New chat · recent history · plan.
 
-Chế độ Thư mục có 3 trạng thái con (rỗng · đang quét · sẵn sàng), tự thay đổi
-qua các phương thức `show_folder_*` do MainWindow gọi khi mở/quét thư mục."""
+Folder mode has 3 sub-states (empty · scanning · ready), switched via the
+`show_folder_*` methods that MainWindow calls when opening/scanning a folder."""
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, Signal
@@ -31,10 +31,11 @@ _BADGE_CLASS = {
 
 
 class RecentItem(QFrame):
-    """Một dòng lịch sử — 2 hàng: tiêu đề + (badge loại file · tên file).
+    """A history row — 2 lines: title + (file-type badge · file name).
 
-    Nền thẻ (trắng khi đang mở / hover) được vẽ trực tiếp bằng QPainter để không
-    phụ thuộc vào việc QFrame con có tô background từ stylesheet hay không.
+    The card background (white when open / hovered) is painted directly with
+    QPainter so it doesn't depend on whether the child QFrame gets a
+    background from the stylesheet.
     """
 
     picked = Signal(str)
@@ -85,7 +86,7 @@ class RecentItem(QFrame):
         meta.addWidget(self._name, stretch=1)
         lay.addLayout(meta)
 
-        # Cắt bớt chuỗi dài để không phá bề rộng sidebar cố định.
+        # Elide long strings so they don't break the sidebar's fixed width.
         self._title.setText(
             QFontMetrics(self._title.font()).elidedText(
                 path_obj.stem, Qt.TextElideMode.ElideRight, 168))
@@ -113,7 +114,7 @@ class RecentItem(QFrame):
         super().leaveEvent(event)
 
     def paintEvent(self, event):
-        # Vẽ thẻ nền trắng bo góc khi đang mở (hoặc hover) — như nút "Trò chuyện mới".
+        # Paint a rounded white card background when open (or hovered) — like the "New chat" button.
         if self._active or self._hover:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -136,13 +137,13 @@ class RecentItem(QFrame):
 
 class Sidebar(QFrame):
     new_chat = Signal()
-    file_selected = Signal(str)   # đường dẫn file
+    file_selected = Signal(str)   # file path
     mode_changed = Signal(str)    # "file" | "folder"
-    recent_deleted = Signal(str)  # bấm xóa 1 item trong danh sách "Gần đây"
+    recent_deleted = Signal(str)  # clicking delete on an item in the "Recent" list
 
-    open_folder = Signal()             # bấm "Mở thư mục làm việc" (trống)
-    change_folder = Signal()           # bấm "Đổi" (đang quét / sẵn sàng)
-    folder_file_removed = Signal(str)         # bấm xóa 1 file trong cây thư mục
+    open_folder = Signal()             # clicking "Open working folder" (empty state)
+    change_folder = Signal()           # clicking "Change" (scanning / ready)
+    folder_file_removed = Signal(str)         # clicking delete on a file in the folder tree
 
     @log_call
     def __init__(self, parent=None):
@@ -154,7 +155,7 @@ class Sidebar(QFrame):
         lay.setContentsMargins(12, 14, 12, 14)
         lay.setSpacing(10)
 
-        # ── Segmented control: Tệp / Thư mục ──────────────────────────────────
+        # ── Segmented control: File / Folder ──────────────────────────────────
         seg = QFrame()
         seg.setObjectName("segControl")
         seg_lay = QHBoxLayout(seg)
@@ -175,13 +176,13 @@ class Sidebar(QFrame):
             seg_lay.addWidget(btn)
         lay.addWidget(seg)
 
-        # ── Thân sidebar: nội dung Tệp / Thư mục thay nhau ─────────────────────
+        # ── Sidebar body: File / Folder content swaps in and out ───────────────
         self._body_stack = QStackedWidget()
         self._body_stack.addWidget(self._build_file_body())
         self._body_stack.addWidget(self._build_folder_body())
         lay.addWidget(self._body_stack, stretch=1)
 
-        # ── Thẻ gói dịch vụ + thanh tiến trình ────────────────────────────────
+        # ── Plan card + progress bar ────────────────────────────────────────────
         self._plan_card = QFrame()
         self._plan_card.setObjectName("planCard")
         pc = QVBoxLayout(self._plan_card)
@@ -215,14 +216,14 @@ class Sidebar(QFrame):
 
         self._items: list[RecentItem] = []
 
-    # ── Chuyển đổi Tệp ⇄ Thư mục ──────────────────────────────────────────────
+    # ── Switch File ⇄ Folder ─────────────────────────────────────────────────
 
     @log_call
     def _on_seg_clicked(self, mode: str):
         self._body_stack.setCurrentIndex(_MODE_FOLDER if mode == "folder" else _MODE_FILE)
         self.mode_changed.emit(mode)
 
-    # ── Thân "Tệp": Trò chuyện mới + lịch sử gần đây ─────────────────────────
+    # ── "File" body: New chat + recent history ───────────────────────────────
 
     @log_call
     def _build_file_body(self) -> QWidget:
@@ -256,7 +257,7 @@ class Sidebar(QFrame):
         lay.addWidget(scroll, stretch=1)
         return page
 
-    # ── Thân "Thư mục": trống → đang quét → sẵn sàng ─────────────────────────
+    # ── "Folder" body: empty → scanning → ready ───────────────────────────────
 
     @log_call
     def _build_folder_body(self) -> QWidget:
@@ -319,7 +320,7 @@ class Sidebar(QFrame):
         spin.setObjectName("folderSpinBar")
         spin.setFixedHeight(4)
         spin.setTextVisible(False)
-        spin.setMaximum(0)   # chế độ "đang chạy" — vô định
+        spin.setMaximum(0)   # "running" mode — indeterminate
         lay.addWidget(spin)
 
         self._scan_status_lbl = QLabel(S.SCANNING)
@@ -381,7 +382,7 @@ class Sidebar(QFrame):
 
         return badge, path_lbl
 
-    # ── Điều khiển từ MainWindow khi mở / quét thư mục ───────────────────────
+    # ── Controlled by MainWindow when opening / scanning a folder ────────────
 
     @log_call
     def show_folder_scanning(self, folder_path: str):
@@ -406,7 +407,7 @@ class Sidebar(QFrame):
         self._folder_tree.set_files(files, counts)
         self._folder_footer_lbl.setText(S.FOLDER_FILE_COUNT.format(count=len(files)))
 
-    # ── Danh sách gần đây ───────────────────────────────────────────────────────
+    # ── Recent list ───────────────────────────────────────────────────────────
 
     @log_call
     def refresh(self, recent_paths: list[str], active_path: str | None = None):
@@ -431,7 +432,7 @@ class Sidebar(QFrame):
             self._list_lay.insertWidget(item_index, it)
             self._items.append(it)
 
-    # ── Gói dịch vụ ─────────────────────────────────────────────────────────────
+    # ── Plan ──────────────────────────────────────────────────────────────────
 
     @log_call
     def set_plan(self, plan_label: str, remaining, limit):

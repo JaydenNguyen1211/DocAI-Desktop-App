@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 CONFIG_PATH = Path(os.environ.get("APPDATA", Path.home())) / "DocAI" / "config.json"
 
 
-@log_call(log_result=False)  # kết quả chứa auth token — không log ra file
+@log_call(log_result=False)  # result contains the auth token — don't log it
 def load_config() -> dict:
     try:
         if CONFIG_PATH.exists():
@@ -19,7 +19,7 @@ def load_config() -> dict:
     return {}
 
 
-@log_call(log_args=False)  # `data` chứa auth token — không log ra file
+@log_call(log_args=False)  # `data` contains the auth token — don't log it
 def save_config(data: dict):
     try:
         CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)

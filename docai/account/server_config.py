@@ -1,15 +1,16 @@
-"""Cấu hình kết nối server DocAI (Firebase).
+"""DocAI server connection config (Firebase).
 
-Ba giá trị cần điền sau khi deploy server:
-  - FIREBASE_API_KEY: Web API Key của project Firebase (docai-15ceb).
-    Lấy tại: Firebase Console → Project settings → General → Web API Key.
-    Đây là khóa CÔNG KHAI dùng cho đăng nhập, an toàn khi nhúng vào app.
-  - API_BASE_URL: URL của Cloud Function `api` sau khi `firebase deploy`.
-    Ví dụ: https://api-xxxxxx-as.a.run.app
-    hoặc:  https://asia-southeast1-docai-15ceb.cloudfunctions.net/api
+Two values to fill in after deploying the server:
+  - FIREBASE_API_KEY: Web API Key of the Firebase project (docai-15ceb).
+    Get it at: Firebase Console → Project settings → General → Web API Key.
+    This is a PUBLIC key used for login, safe to embed in the app.
+  - API_BASE_URL: URL of the `api` Cloud Function after `firebase deploy`.
+    Example: https://api-xxxxxx-as.a.run.app
+    or:      https://asia-southeast1-docai-15ceb.cloudfunctions.net/api
 
-Có thể override bằng biến môi trường (DOCAI_FIREBASE_API_KEY, DOCAI_API_BASE_URL)
-hoặc bằng khóa "server" trong config.json — tiện khi build .exe cho nhiều môi trường.
+Can be overridden via environment variables (DOCAI_FIREBASE_API_KEY,
+DOCAI_API_BASE_URL) or the "server" key in config.json — handy for building
+one .exe for multiple environments.
 """
 import os
 
@@ -19,7 +20,7 @@ from ..logging_config import get_logger, log_call
 
 logger = get_logger(__name__)
 
-# ── Giá trị mặc định — ĐIỀN SAU KHI DEPLOY ─────────────────────────────────
+# ── Default values — FILL IN AFTER DEPLOYING ────────────────────────────────
 FIREBASE_API_KEY = "AIzaSyDCGFsPcTfue9c04IvPZWvRtb582snbrfk"
 API_BASE_URL = "https://asia-southeast1-docai-15ceb.cloudfunctions.net/api"
 

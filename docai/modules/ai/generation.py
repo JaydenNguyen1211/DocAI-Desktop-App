@@ -1,9 +1,10 @@
-"""Tạo tài liệu mới bằng chat.
+"""Create a new document via chat.
 
-`detect_create_intent()` quyết định có phải yêu cầu TẠO file mới hay không
-(khác với sửa file đang mở, vốn đã được lọc trước ở app.ui.main_window) và
-suy đoán định dạng nếu câu lệnh có nhắc tới. Việc soạn nội dung thật do server
-(Claude, qua /chat có sẵn) đảm nhiệm — hàm này chỉ điều hướng UI.
+`detect_create_intent()` decides whether this is a request to CREATE a new
+file (as opposed to editing an already-open file, which is already filtered
+out upstream in app.ui.main_window) and guesses the format if the message
+mentions one. The actual content generation is handled by the server
+(Claude, via the existing /chat) — this function only drives the UI.
 """
 import re
 from typing import Optional
@@ -41,10 +42,10 @@ _STOPWORDS = {
 
 @log_call
 def detect_create_intent(text: str, has_open_file: bool = False) -> Optional[str]:
-    """Trả về "word"/"excel"/"ppt" (định dạng suy đoán được), "needs_type"
-    (chắc chắn là yêu cầu tạo mới nhưng chưa rõ định dạng), "ambiguous"
-    (câu lệnh quá mơ hồ — cần AI hỏi lại, xem EC6), hoặc None (không phải
-    yêu cầu tạo tài liệu mới)."""
+    """Returns "word"/"excel"/"ppt" (the guessed format), "needs_type"
+    (definitely a create request but the format is unclear), "ambiguous"
+    (the message is too vague — the AI needs to ask back, see EC6), or None
+    (not a request to create a new document)."""
     low = text.lower()
 
     if not any(verb in low for verb in _CREATE_VERBS):
@@ -75,9 +76,9 @@ def _is_ambiguous(low: str) -> bool:
 @log_call
 def build_creation_prompt(file_type: str, user_text: str, page_count: int,
                           business: dict | None = None) -> str:
-    """Câu lệnh gửi lên server (/chat) — yêu cầu AI trả về nội dung kèm mốc
-    tách trang/sheet để `modules.common.creators.parse_sections()` /
-    `save_excel()` dựng file thật."""
+    """The prompt sent to the server (/chat) — asks the AI to return content
+    with page/sheet split markers so `modules.common.creators.parse_sections()`
+    / `save_excel()` can build the real file."""
     company = (business or {}).get("company_name") or ""
     biz_line = f"Thông tin doanh nghiệp (dùng nếu phù hợp): {company}.\n" if company else ""
 
@@ -104,8 +105,8 @@ def build_creation_prompt(file_type: str, user_text: str, page_count: int,
 
 @log_call
 def guess_page_count(text: str, default: int = 5) -> int:
-    """Suy đoán số trang/slide từ câu lệnh (vd "...6 trang: ..."), có giới
-    hạn hợp lý để tránh AI bị yêu cầu soạn quá dài."""
+    """Guess the page/slide count from the message (e.g. "...6 pages: ..."),
+    with a reasonable cap so the AI isn't asked to write something too long."""
     match = re.search(r'(\d+)\s*(trang|slide)', text, flags=re.IGNORECASE)
     if not match:
         return default
@@ -115,7 +116,8 @@ def guess_page_count(text: str, default: int = 5) -> int:
 
 @log_call
 def suggest_file_name(user_text: str) -> str:
-    """Gợi ý tên file từ câu lệnh — bỏ động từ/số trang, ghép các từ chính."""
+    """Suggest a file name from the message — strips the verb/page count,
+    joins the main words."""
     text = re.sub(r'\d+\s*(trang|slide)s?.*$', '', user_text, flags=re.IGNORECASE)
     words = re.findall(r"[^\W\d_]+", text)
     kept = [word for word in words if word.lower() not in _STOPWORDS] or words or ["TaiLieu"]

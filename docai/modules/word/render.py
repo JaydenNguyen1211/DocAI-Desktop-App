@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 @log_call
 def word_to_pdf(path: str, out_path: str | None = None) -> str:
-    """Xuất .docx ra PDF. Windows: Word COM. macOS: Microsoft Office → LibreOffice. Linux: LibreOffice."""
+    """Export .docx to PDF. Windows: Word COM. macOS: Microsoft Office → LibreOffice. Linux: LibreOffice."""
     abs_path = os.path.abspath(path)
     if out_path is None:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:

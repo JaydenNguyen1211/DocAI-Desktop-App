@@ -1,4 +1,5 @@
-"""Chat AI trung tâm — màn hình mở app: chat sẵn sàng ngay, file là ngữ cảnh tùy chọn."""
+"""Central AI chat — the app's opening screen: chat is ready immediately, a
+file is optional context."""
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QFileDialog,
@@ -14,10 +15,10 @@ logger = get_logger(__name__)
 
 
 class CentralChat(QFrame):
-    """Trạng thái 1 — chưa có file. Ô chat trung tâm + chip gợi ý + đính kèm."""
+    """State 1 — no file yet. Central chat box + suggestion chips + attach."""
 
-    message_sent = Signal(str)   # gõ lệnh / bấm chip → bắt đầu trò chuyện
-    file_chosen = Signal(str)    # đính kèm / kéo-thả file → vào workspace
+    message_sent = Signal(str)   # typing a command / clicking a chip → starts the conversation
+    file_chosen = Signal(str)    # attach / drag-and-drop a file → enters the workspace
 
     @log_call
     def __init__(self, parent=None):
@@ -29,7 +30,7 @@ class CentralChat(QFrame):
         outer.setContentsMargins(48, 40, 48, 40)
         outer.addStretch(3)
 
-        # ── Cụm trung tâm (logo · tiêu đề · chip · ô nhập) ─────────────────────
+        # ── Central cluster (logo · title · chips · input box) ─────────────────
         col = QVBoxLayout()
         col.setSpacing(0)
 
@@ -52,7 +53,7 @@ class CentralChat(QFrame):
         col.addWidget(sub)
         col.addSpacing(24)
 
-        # Chip gợi ý
+        # Suggestion chips
         chips_wrap = QVBoxLayout()
         chips_wrap.setSpacing(8)
         row = None
@@ -74,7 +75,7 @@ class CentralChat(QFrame):
         col.addLayout(chips_wrap)
         col.addSpacing(18)
 
-        # ── Ô nhập trung tâm (2 hàng: text ở trên · công cụ ở dưới) ────────────
+        # ── Central input box (2 rows: text on top · tools below) ──────────────
         self._input_card = QFrame()
         self._input_card.setObjectName("welcomeInput")
         self._input_card.setFixedWidth(460)
@@ -119,7 +120,7 @@ class CentralChat(QFrame):
         outer.addLayout(col)
         outer.addStretch(4)
 
-    # ── Gửi / đính kèm ─────────────────────────────────────────────────────────
+    # ── Send / attach ────────────────────────────────────────────────────────
 
     @log_call
     def _submit(self):
@@ -136,7 +137,7 @@ class CentralChat(QFrame):
         if path:
             self.file_chosen.emit(path)
 
-    # ── Kéo-thả file vào màn hình chat ─────────────────────────────────────────
+    # ── Drag-and-drop a file onto the chat screen ───────────────────────────────
 
     @log_call
     def _set_drag_over(self, on: bool):

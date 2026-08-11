@@ -1,11 +1,11 @@
 APP_NAME = "DocAI"
 APP_TAGLINE = "Trợ lý AI xử lý tài liệu văn phòng"
 
-# Gói & quota (mock — backend Phase 2)
+# Plan & quota (mock — backend Phase 2)
 PLAN_NAME = "Pro"
 PLAN_QUOTA = 500
 
-# Nhận diện loại file
+# File type detection
 EXT_MAP = {
     ".docx": "word", ".doc": "word",
     ".xlsx": "excel", ".xls": "excel",
@@ -25,7 +25,7 @@ FILE_DIALOG_FILTER = (
     "PDF (*.pdf);;Ảnh (*.png *.jpg *.jpeg *.bmp *.webp)"
 )
 
-# Chip gợi ý ở chat AI trung tâm (nhãn · màu icon ◆) — theo thiết kế
+# Suggestion chips on the central AI chat (label · icon ◆ color) — per design
 EMPTY_CHIPS = [
     ("Tóm tắt hợp đồng dài",       "#C0392B"),
     ("Trích xuất hóa đơn → Excel", "#1F8A5B"),
@@ -33,7 +33,7 @@ EMPTY_CHIPS = [
     ("Soạn công văn hành chính",   "#6E6A63"),
 ]
 
-# Badge loại file cho item "Gần đây" trong sidebar: (nhãn, khóa màu)
+# File-type badge for a "Recent" item in the sidebar: (label, color key)
 FILE_BADGE_STYLE = {
     "word":  ("DOC", "doc"),
     "excel": ("XLS", "xls"),
@@ -43,12 +43,12 @@ FILE_BADGE_STYLE = {
     "xml":   ("XML", "other"),
 }
 
-# Chế độ Thư mục: nhận diện thêm XML (hóa đơn điện tử) — chỉ dùng để tick
-# chọn làm ngữ cảnh, không cần renderer xem trước như chế độ Tệp.
+# Folder mode: also recognize XML (e-invoices) — only used to check it in
+# as context, doesn't need a preview renderer like File mode does.
 FOLDER_EXT_MAP = {**EXT_MAP, ".xml": "xml"}
 FOLDER_BADGE = {**FILE_BADGE, "xml": "XML"}
 
-# Quick-action chips theo ngữ cảnh file đang mở
+# Quick-action chips based on the currently open file's context
 CONTEXT_CHIPS = {
     "word":  ["Tóm tắt", "Soạn công văn", "Chuyển sang PDF"],
     "excel": ["Tính lương", "Tạo bảng kê thuế", "Chuyển sang PDF"],
@@ -58,8 +58,8 @@ CONTEXT_CHIPS = {
     None:    ["Tóm tắt", "Soạn công văn", "Tính lương"],
 }
 
-# Tạo tài liệu mới bằng chat (không cần file đính kèm trước) — thẻ chọn loại
-# ở 7.2: (khóa loại, nhãn, badge, màu chữ, màu nền badge)
+# Create a new document via chat (no attachment needed beforehand) — type
+# picker card at 7.2: (type key, label, badge, text color, badge background)
 CREATE_TYPE_OPTIONS = [
     ("word",  "Word",       "DOC", "#2A6FDB", "#EAF1FC"),
     ("excel", "Excel",      "XLS", "#1F8A5B", "#E6F4EC"),
@@ -70,13 +70,13 @@ CREATE_TITLE = {
     "word": "Tạo văn bản mới", "excel": "Tạo bảng tính mới", "ppt": "Tạo bản trình bày mới",
 }
 
-# Nhãn ứng dụng cho nút "Mở bằng …" ở panel xem trước (7.6)
+# App label for the "Open with …" button in the preview panel (7.6)
 OPEN_WITH_LABEL = {
     "word": "Word", "excel": "Excel", "ppt": "PowerPoint",
     "pdf": "PDF", "image": "ảnh",
 }
 
-# Định dạng đích cho modal Chuyển đổi định dạng
+# Target formats for the Convert Format modal
 CONVERT_TARGETS = {
     "word":  ["PDF (.pdf)"],
     "excel": ["PDF (.pdf)"],

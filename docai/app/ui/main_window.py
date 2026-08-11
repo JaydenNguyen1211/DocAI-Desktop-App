@@ -1,4 +1,4 @@
-"""Main Window — 1 cửa sổ duy nhất: sidebar · preview tài liệu · chat AI."""
+"""Main Window — a single window: sidebar · document preview · AI chat."""
 import os
 import subprocess
 import sys
@@ -84,7 +84,7 @@ class MainWindow(QMainWindow):
         self._pending_edit_notes: list[str] = []
         self._pending_docset_outputs: list[str] = []
         self._docset_worker: Optional[CallWorker] = None
-        self._history: list[dict] = []   # {role, content} — ngữ cảnh cho AI
+        self._history: list[dict] = []   # {role, content} — context for the AI
         self._plan = "free"
         self._quota_remaining: Optional[int] = None
         self._quota_limit: Optional[int] = None
@@ -92,8 +92,8 @@ class MainWindow(QMainWindow):
         self._folder_path: Optional[str] = None
         self._folder_files: list = []
         self._folder_context_name: Optional[str] = None
-        self._attached_files: list[str] = []   # đính kèm qua chat, cuộc trò chuyện hiện tại
-        self._recent_outputs: list[str] = []   # output process_document_set(), mới nhất cuối
+        self._attached_files: list[str] = []   # attached via chat, current conversation
+        self._recent_outputs: list[str] = []   # output of process_document_set(), newest last
         self._folder_scan_worker: Optional[FolderScanWorker] = None
 
         self._build_ui()
@@ -132,9 +132,10 @@ class MainWindow(QMainWindow):
         self.sidebar.folder_file_removed.connect(self._on_folder_file_removed)
         body.addWidget(self.sidebar)
 
-        # Stack: [0] chat AI trung tâm (mở app là sẵn sàng) · [1] workspace (preview + chat)
-        # — Chat Panel luôn độc lập, chuyển tab Tệp/Thư mục ở sidebar không đụng
-        # tới stack này; sidebar chỉ là nguồn tham chiếu file cho chat.
+        # Stack: [0] central AI chat (ready as soon as the app opens) · [1] workspace (preview + chat)
+        # — the Chat Panel is always independent; switching the File/Folder tab
+        # in the sidebar doesn't touch this stack, the sidebar is only a file
+        # reference source for chat.
         self.stack = QStackedWidget()
 
         self.welcome = CentralChat()
@@ -150,8 +151,8 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.setChildrenCollapsible(False)
 
-        # Trạng thái 2 (theo MVP §4.1): cột chat thu hẹp bên TRÁI,
-        # panel xem trước/chỉnh sửa file bên PHẢI.
+        # State 2 (per MVP §4.1): narrow chat column on the LEFT,
+        # file preview/edit panel on the RIGHT.
         self.chat = ChatPanel()
         self.chat.message_sent.connect(self._on_message)
         self.chat.file_card_clicked.connect(self._on_file_card)
@@ -163,8 +164,8 @@ class MainWindow(QMainWindow):
         self.preview.extract_text_requested.connect(self._on_extract_text)
         self.splitter.addWidget(self.preview)
 
-        self.splitter.setStretchFactor(0, 0)   # chat: giữ hẹp
-        self.splitter.setStretchFactor(1, 1)   # preview: co giãn
+        self.splitter.setStretchFactor(0, 0)   # chat: stay narrow
+        self.splitter.setStretchFactor(1, 1)   # preview: stretch
         self.splitter.setSizes([360, 720])
 
         ws_lay.addWidget(self.splitter)
@@ -204,7 +205,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(gear)
         return bar
 
-    # ══ Kéo-thả file vào cửa sổ ══════════════════════════════════════════════
+    # ══ Drag-and-drop files onto the window ══════════════════════════════════
 
     @log_call
     def dragEnterEvent(self, event):
@@ -221,16 +222,18 @@ class MainWindow(QMainWindow):
                 self._open_file(path)
                 return
 
-    # ══ Mở file / luồng bắt đầu ══════════════════════════════════════════════
+    # ══ Open file / entry flow ═══════════════════════════════════════════════
 
     @log_call
     def _pick_file(self):
-        """Đính kèm file từ ô chat workspace — gắn vào cuộc trò chuyện đang có.
+        """Attach a file from the workspace chat box — attaches to the current
+        conversation.
 
-        Trong hội thoại chế độ Thư mục (đang xử lý nhiều file, chưa mở file
-        đơn lẻ nào) — đính kèm KHÔNG chuyển sang chế độ 1-file, chỉ thêm file
-        vào danh sách ứng viên cho `resolve_input_files()` (xem
-        `_start_folder_task`), để không làm mất ngữ cảnh nhiều file đang có."""
+        In a Folder-mode conversation (processing multiple files, no single
+        file open yet) — attaching does NOT switch to single-file mode, it
+        only adds the file to the candidate list for `resolve_input_files()`
+        (see `_start_folder_task`), so the existing multi-file context isn't
+        lost."""
         path, _ = QFileDialog.getOpenFileName(self, S.PICK_FILE_TITLE, "", FILE_DIALOG_FILTER)
         if not path:
             return
@@ -267,11 +270,11 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _adopt_current_file(self, path: str, ftype: str):
-        """Phần chung khi 1 file thật trở thành ngữ cảnh hiện tại: set state,
-        đẩy vào "Gần đây", nạp preview, đặt chip theo loại file. Dùng cho cả
-        mở file có sẵn (`_open_file`) và file vừa được AI tạo xong rồi lưu
-        (`_on_save_generated`) — 2 luồng chỉ khác nhau ở việc có xóa hội
-        thoại/lịch sử hay không."""
+        """Shared logic for when a real file becomes the current context: set
+        state, push into "Recent", load the preview, set chips by file type.
+        Used both when opening an existing file (`_open_file`) and when a
+        file the AI just generated has been saved (`_on_save_generated`) —
+        the two flows only differ in whether the chat/history gets cleared."""
         self._current_path = path
         self._current_type = ftype
         self._push_recent(path)
@@ -284,7 +287,8 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _start_chat(self, text: str):
-        """Gõ lệnh / chip ở chat trung tâm → vào workspace, chưa cần file."""
+        """Typing a command / chip in the central chat → enters the workspace,
+        no file needed yet."""
         self._current_path = None
         self._current_type = None
         self.chat.clear()
@@ -295,7 +299,8 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _new_chat(self):
-        """Trò chuyện mới → về chat AI trung tâm, xóa hội thoại & ngữ cảnh file."""
+        """New conversation → back to the central AI chat, clears the chat &
+        file context."""
         self._current_path = None
         self._current_type = None
         self._folder_context_name = None
@@ -308,10 +313,11 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
         self.welcome.input_box.setFocus()
 
-    # ══ Chế độ Thư mục — mở / quét, rồi chat sẵn sàng ngay ═══════════════════
-    # Chat Panel luôn là trung tâm — không có bước "tick chọn file rồi bấm Bắt
-    # đầu chat"; sidebar (cây thư mục) chỉ là nguồn tham chiếu tên file cho
-    # `doc_set.resolve_input_files()`. Quét xong là chat nhận lệnh được ngay.
+    # ══ Folder mode — open / scan, then chat is ready right away ════════════
+    # The Chat Panel is always the center — there is no "tick files then
+    # click Start chat" step; the sidebar (folder tree) is only a file-name
+    # reference source for `doc_set.resolve_input_files()`. Once the scan is
+    # done, chat can take commands immediately.
 
     @log_call
     def _open_folder(self):
@@ -342,8 +348,8 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_folder_file_removed(self, path: str):
-        """Bấm xóa 1 file trong cây thư mục — chỉ gỡ khỏi danh sách tham chiếu,
-        không đụng file thật."""
+        """Clicking delete on a file in the folder tree — only removes it from
+        the reference list, doesn't touch the real file."""
         self._folder_files = [f for f in self._folder_files if f.path != path]
 
     @log_call
@@ -362,9 +368,10 @@ class MainWindow(QMainWindow):
         self.chat.add_system(S.FOLDER_OPENED.format(name=folder_name, count=file_count))
         self.chat.input_box.setFocus()
 
-    # ══ Thao tác file trong thư mục (tạo/xóa/đổi tên/mở 1 file) ═════════════
-    # Theo thiết kế D:\Tools\DocAI\Plan\V4\Folder\screens_folder — nhận diện
-    # cục bộ trước, không khớp mới rơi xuống process_document_set().
+    # ══ File operations within a folder (create/delete/rename/open 1 file) ══
+    # Per the design at D:\Tools\DocAI\Plan\V4\Folder\screens_folder — try
+    # local intent detection first, fall through to process_document_set()
+    # only if nothing matches.
 
     @log_call
     def _handle_folder_message(self, text: str):
@@ -513,8 +520,8 @@ class MainWindow(QMainWindow):
             self.chat.set_enabled(True)
             self.chat.input_box.setFocus()
 
-    # ══ Xử lý nhiều file (chế độ Thư mục) — so sánh/đối chiếu/gộp/trích xuất/
-    # tìm kiếm/rà soát, xem `modules.common.doc_set.process_document_set()` ═══
+    # ══ Multi-file processing (Folder mode) — compare/cross-check/merge/
+    # extract/search/review, see `modules.common.doc_set.process_document_set()` ══
 
     @log_call
     def _start_folder_task(self, text: str):
@@ -579,7 +586,8 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_recent_deleted(self, path: str):
-        """Bấm xóa 1 item trong tab "Tệp" — chỉ gỡ khỏi lịch sử, không xóa file thật."""
+        """Clicking delete on an item in the "Files" tab — only removes it from
+        history, doesn't delete the real file."""
         self._remove_recent(path)
 
     @log_call
@@ -587,7 +595,7 @@ class MainWindow(QMainWindow):
         recent = load_config().get("recent_files", [])
         self.sidebar.refresh(recent, self._current_path)
 
-    # ══ Quota (nguồn: server) ════════════════════════════════════════════════
+    # ══ Quota (source: server) ═══════════════════════════════════════════════
 
     @log_call
     def _update_quota_label(self):
@@ -601,10 +609,10 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _refresh_account(self):
-        """Lấy gói + quota từ server (nền)."""
+        """Fetch plan + quota from the server (background)."""
         self._me_worker = CallWorker(api_client.me)
         self._me_worker.ok.connect(self._on_account)
-        self._me_worker.err.connect(lambda _msg: None)  # im lặng nếu lỗi mạng
+        self._me_worker.err.connect(lambda _msg: None)  # stay silent on network errors
         self._me_worker.start()
 
     @log_call
@@ -614,7 +622,7 @@ class MainWindow(QMainWindow):
         self._quota_limit = data.get("quota_limit")
         self._update_quota_label()
 
-    # ══ Chat AI (gọi server, streaming khi có kết quả) ═══════════════════════
+    # ══ AI chat (calls the server, streams once there's a result) ═══════════
 
     @log_call
     def _on_message(self, text: str):
@@ -622,23 +630,24 @@ class MainWindow(QMainWindow):
         self.chat.set_enabled(False)
         self._remember("user", text)
 
-        # Đang mở file Word/Excel/PPT/ảnh → câu chat là lệnh sửa file (nếu AI
-        # hiểu vậy). Ảnh vẫn đi qua /edit (không phải /chat) để giữ đồng nhất,
-        # nhưng có kèm nội dung ảnh (xem _request_edit) nên các câu hỏi không
-        # phải lệnh sửa (VD "ảnh này chụp gì") vẫn trả lời được.
+        # A Word/Excel/PPT/image file is open → the chat message is an edit
+        # command (if the AI reads it that way). Images still go through
+        # /edit (not /chat) to stay consistent, but include the image content
+        # (see _request_edit) so non-edit questions (e.g. "what's in this
+        # image") still get answered.
         if self._current_path and self._current_type in ("word", "excel", "ppt", "image"):
             self._start_edit(text)
             return
 
-        # Đang trong hội thoại chế độ Thư mục (đã bấm "Bắt đầu trò chuyện") và
-        # chưa đính kèm thêm 1 file đơn lẻ nào → định tuyến qua thao tác file
-        # (tạo/xóa/đổi tên/mở 1 file) hoặc function tổng hợp nhiều file.
+        # In a Folder-mode conversation (already clicked "Start chat") and no
+        # single file has been attached yet → route through file operations
+        # (create/delete/rename/open 1 file) or the multi-file function.
         if self._folder_context_name and not self._current_path:
             self._handle_folder_message(text)
             return
 
-        # Không đang sửa file mở sẵn → có thể là yêu cầu TẠO tài liệu mới
-        # (7.1–7.6). Việc này xử lý cục bộ, không cần gọi server trước.
+        # Not editing an already-open file → could be a request to CREATE a
+        # new document (7.1–7.6). Handled locally, no server call needed first.
         intent = detect_create_intent(text, has_open_file=bool(self._current_path))
         if intent is not None:
             self._handle_create_intent(intent, text)
@@ -649,16 +658,17 @@ class MainWindow(QMainWindow):
             else self._folder_context_name)
         business = load_config().get("business", {})
 
-        # Meta (file-card / ghi đè) suy từ câu lệnh; text lấy từ server.
+        # Meta (file-card / overwrite) inferred from the message; text comes from the server.
         artifact, is_edit = classify_intent(text, file_name, self._current_type)
         self._pending_meta = (artifact, is_edit)
 
         self.chat.start_ai()
         self.chat.stream_ai(S.PROCESSING)
 
-        # PDF đang mở → gửi kèm nội dung file để Claude đọc trực tiếp (không
-        # chỉ tên file như trước) — nền tảng cho tóm tắt/trích xuất/OCR.
-        # (Ảnh đi qua /edit ở nhánh phía trên, không tới đây.)
+        # A PDF is open → send the file content along so Claude reads it
+        # directly (not just the file name as before) — the foundation for
+        # summarize/extract/OCR. (Images go through /edit in the branch
+        # above, they never reach here.)
         attachment = None
         if self._current_path and self._current_type == "pdf":
             attachment = controller.build_attachment(self._current_path, self._current_type)
@@ -673,7 +683,7 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_chat_result(self, data: dict):
-        # Cập nhật quota từ server.
+        # Update quota from the server.
         if data.get("quota_remaining") is not None:
             self._quota_remaining = data["quota_remaining"]
             self._plan = data.get("plan", self._plan)
@@ -689,7 +699,7 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _start_stream(self, full_text: str):
-        """Hiển thị dần văn bản server trả về."""
+        """Gradually reveal the text returned by the server."""
         self._stream_pos = 0
         self._stream_timer = QTimer(self)
         self._stream_timer.setInterval(16)
@@ -713,7 +723,7 @@ class MainWindow(QMainWindow):
             self._stream_timer.stop()
             self._finish_reply()
 
-    # ══ Sửa file thật (Word / Excel) ═════════════════════════════════════════
+    # ══ Edit a real file (Word / Excel) ══════════════════════════════════════
 
     @log_call
     def _remember(self, role: str, content: str):
@@ -724,11 +734,13 @@ class MainWindow(QMainWindow):
     def _start_edit(self, text: str):
         path, ftype = self._current_path, self._current_type
 
-        # "Tính lương + BHXH" trên 1 file Excel đang mở (bảng chấm công) →
-        # tính TẤT ĐỊNH cục bộ (modules.business.payroll), không cho Claude
-        # tự do sửa ô/công thức lương qua /edit — đúng nguyên tắc "DocAI hỗ
-        # trợ, không tự kết luận số liệu" với nhóm nghiệp vụ rủi ro cao.
-        # File chấm công gốc KHÔNG bị đụng tới — output là 1 file mới.
+        # "Compute payroll + social insurance" on an open Excel file
+        # (timesheet) → compute DETERMINISTICALLY, locally
+        # (modules.business.payroll), never let Claude freely edit
+        # payroll cells/formulas via /edit — per the "DocAI assists, never
+        # concludes figures on its own" principle for high-risk business
+        # cases. The original timesheet file is NOT touched — the output is
+        # a new file.
         if ftype == "excel" and detect_payroll_intent(text):
             self._start_payroll(path)
             return
@@ -767,10 +779,11 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _start_payroll(self, path: str):
-        """Tính lương + BHXH/BHYT/BHTN + TNCN cục bộ (`modules.business.payroll`)
-        — không gọi AI, không tốn quota. `path` là file "bảng chấm công" đang
-        mở; kết quả là 1 file "Bảng lương" mới, đi qua đúng cơ chế staging
-        + file-card "Bấm để xem trước & lưu" như `process_document_set()`."""
+        """Compute payroll + social/health/unemployment insurance + personal
+        income tax locally (`modules.business.payroll`) — no AI call, no
+        quota spent. `path` is the open "timesheet" file; the result is a new
+        "Payroll" file, going through the same staging mechanism + "Click to
+        preview & save" file-card as `process_document_set()`."""
         self.chat.start_ai()
         self.chat.stream_ai(S.CALCULATING_PAYROLL)
 
@@ -804,7 +817,7 @@ class MainWindow(QMainWindow):
         if reply is not None and reply.text:
             self._remember("assistant", reply.text)
 
-        # File vừa được sửa thật → báo từng thay đổi & render lại bản xem trước.
+        # A real file was just edited → report each change & re-render the preview.
         notes, self._pending_edit_notes = self._pending_edit_notes, []
         if notes and self._current_path:
             name = Path(self._current_path).name
@@ -813,9 +826,10 @@ class MainWindow(QMainWindow):
             self.preview.load_file(self._current_path, self._current_type, name)
             return
 
-        # Kết quả từ process_document_set() (gộp / trích xuất & gộp nguồn hỗn
-        # hợp) — file mới nằm ở thư mục staging tạm, chưa lưu thật; thẻ file
-        # bấm vào sẽ mở hộp thoại "Lưu file" thay vì mở trực tiếp (_on_file_card).
+        # Result from process_document_set() (merge / extract & merge mixed
+        # sources) — the new file sits in the temp staging folder, not saved
+        # for real yet; clicking the file card opens the "Save file" dialog
+        # instead of opening it directly (_on_file_card).
         outputs, self._pending_docset_outputs = self._pending_docset_outputs, []
         for out_path in outputs:
             badge = FILE_BADGE.get(EXT_MAP.get(Path(out_path).suffix.lower(), ""), "FILE")
@@ -832,7 +846,7 @@ class MainWindow(QMainWindow):
         if reply.is_edit and self._current_path:
             self._confirm_overwrite()
 
-    # ══ Modal: Xác nhận ghi đè ═══════════════════════════════════════════════
+    # ══ Modal: Confirm overwrite ═════════════════════════════════════════════
 
     @log_call
     def _confirm_overwrite(self):
@@ -847,7 +861,7 @@ class MainWindow(QMainWindow):
                 self.chat.add_system(S.COPY_KEPT_ORIGINAL)
                 self.chat.add_file_card(copy_name, badge)
 
-    # ══ Modal: Chuyển đổi định dạng ══════════════════════════════════════════
+    # ══ Modal: Convert format ════════════════════════════════════════════════
 
     @log_call
     def _open_convert(self):
@@ -861,7 +875,7 @@ class MainWindow(QMainWindow):
     def _on_converted(self, out_path: str):
         path_obj = Path(out_path)
         if path_obj.is_dir():
-            # PDF → Ảnh: nhiều file trong 1 thư mục, không phải 1 file đơn.
+            # PDF → Image: multiple files in one folder, not a single file.
             count = len(list(path_obj.glob("*.png")))
             self.chat.add_system(S.EXPORTED_IMAGES.format(count=count, name=path_obj.name))
             self.chat.add_file_card(path_obj.name, "IMG", full_path=str(path_obj))
@@ -870,7 +884,7 @@ class MainWindow(QMainWindow):
         self.chat.add_system(S.CONVERT_DONE)
         self.chat.add_file_card(path_obj.name, badge, full_path=str(path_obj))
 
-    # ══ Trích xuất toàn bộ văn bản PDF (cục bộ — không qua AI) ══════════════
+    # ══ Extract the full PDF text (local — no AI involved) ══════════════════
 
     @log_call
     def _on_extract_text(self):
@@ -897,13 +911,14 @@ class MainWindow(QMainWindow):
         self.chat.add_system(S.EXTRACTED_TO_FILE.format(name=Path(out_path).name))
         self.chat.add_file_card(Path(out_path).name, "TXT", full_path=out_path)
 
-    # ══ Tạo tài liệu mới bằng chat (7.1–7.6, EC1–EC6) ═══════════════════════
+    # ══ Create a new document via chat (7.1–7.6, EC1–EC6) ═══════════════════
 
     @log_call
     def _handle_create_intent(self, intent: str, text: str):
-        """`intent` từ `detect_create_intent()`: "word"/"excel"/"ppt" (đoán
-        được định dạng), "needs_type" (chắc là tạo mới, chưa rõ định dạng),
-        hoặc "ambiguous" (EC6 — câu lệnh quá mơ hồ, AI hỏi lại)."""
+        """`intent` from `detect_create_intent()`: "word"/"excel"/"ppt" (format
+        guessed), "needs_type" (likely a new-document request, format
+        unclear), or "ambiguous" (EC6 — the message is too vague, the AI asks
+        back)."""
         self.chat.set_enabled(True)
         self.chat.input_box.setFocus()
 
@@ -916,8 +931,8 @@ class MainWindow(QMainWindow):
             self.chat.add_widget_row(card)
             return
 
-        # EC4 — hết tác vụ AI trong tháng (gói Free): chặn trước khi tốn quota
-        # thật cho bước soạn nội dung.
+        # EC4 — out of AI actions for the month (Free plan): block before
+        # spending real quota on the content-generation step.
         if self._plan == "free" and self._quota_remaining == 0:
             card = QuotaWarningCard(
                 S.QUOTA_EXCEEDED.format(limit=self._quota_limit or 0),
@@ -937,7 +952,7 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_doc_type_confirmed(self, file_type: str, user_text: str, page_count: int):
-        """7.3 — đặt tên & chọn nơi lưu, rồi bắt đầu soạn."""
+        """7.3 — name the file & choose a save location, then start generating."""
         cfg = load_config()
         default_dir = cfg.get("default_save_folder") or str(Path.home() / "Documents" / "DocAI")
         os.makedirs(default_dir, exist_ok=True)
@@ -953,8 +968,9 @@ class MainWindow(QMainWindow):
     @log_call
     def _start_generation(self, file_type: str, user_text: str, page_count: int,
                           final_path: str, open_after: bool):
-        """7.4 — gọi AI soạn nội dung thật (qua /chat có sẵn) rồi dựng file
-        thật ở luồng nền; `page_done` cập nhật checklist đang soạn."""
+        """7.4 — call the AI to generate the real content (via the existing
+        /chat) then build the actual file on a background thread;
+        `page_done` updates the in-progress checklist."""
         self._gen_file_type = file_type
         self._gen_user_text = user_text
         self._gen_page_count = page_count
@@ -992,8 +1008,9 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_gen_failed(self, message: str, pages_done: int, partial_sections):
-        """EC5 — soạn thất bại giữa chừng. `partial_sections` chỉ khác rỗng
-        khi server đã trả nội dung nhưng bước dựng file cục bộ mới lỗi."""
+        """EC5 — generation failed partway through. `partial_sections` is only
+        non-empty when the server already returned content but the local
+        file-build step then failed."""
         self.chat.set_enabled(True)
         total = self._gen_page_count if pages_done else 0
         card = GenErrorCard(message, pages_done, total, can_save_partial=bool(partial_sections))
@@ -1031,7 +1048,7 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _show_preview_ready(self, tmp_path: str, message: str):
-        """7.5 — xem trước file vừa dựng (chưa lưu) + nút Lưu file."""
+        """7.5 — preview the just-built file (not saved yet) + a Save file button."""
         self._gen_tmp_path = tmp_path
         name = Path(self._gen_final_path).name
         self.preview.load_file(tmp_path, self._gen_file_type, name)
@@ -1045,8 +1062,9 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _on_save_generated(self, save_btn: QPushButton):
-        """7.6 — lưu file thật vào nơi đã chọn, rồi làm việc luôn với nó
-        (y hệt trạng thái đính kèm file có sẵn, không xóa hội thoại)."""
+        """7.6 — save the real file to the chosen location, then start working
+        with it right away (exactly like the existing attached-file state,
+        no chat clearing)."""
         save_btn.setEnabled(False)
         tmp_path, final_path = self._gen_tmp_path, self._gen_final_path
         try:
@@ -1069,7 +1087,7 @@ class MainWindow(QMainWindow):
         if self._gen_open_after:
             _open_path(final_path)
 
-    # ══ Modal: Cài đặt ═══════════════════════════════════════════════════════
+    # ══ Modal: Settings ══════════════════════════════════════════════════════
 
     @log_call
     def _open_settings(self):
@@ -1085,6 +1103,7 @@ class MainWindow(QMainWindow):
 
     # ══ File card (mock) ═════════════════════════════════════════════════════
 
+
     @log_call
     def _on_file_card(self, file_name: str):
         path_obj = Path(file_name)
@@ -1098,8 +1117,9 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _is_staged_output(self, path_obj: Path) -> bool:
-        """File kết quả từ process_document_set() (gộp / trích xuất & gộp nguồn
-        hỗn hợp) — chưa được lưu thật, còn nằm ở thư mục staging tạm."""
+        """A result file from process_document_set() (merge / extract & merge
+        mixed sources) — not saved for real yet, still in the temp staging
+        folder."""
         try:
             path_obj.relative_to(_STAGING_DIR)
             return True
@@ -1108,10 +1128,11 @@ class MainWindow(QMainWindow):
 
     @log_call
     def _save_and_open_staged(self, staged_path: Path):
-        """Lưu file kết quả (gộp / trích xuất & gộp nguồn hỗn hợp) ra vị trí
-        người dùng chọn, rồi tiếp tục làm việc với nó ngay trong cuộc trò
-        chuyện hiện tại — giữ nguyên lịch sử chat, không xóa gì cả (giống
-        `_on_save_generated`, khớp thiết kế 3.2b "mở như 1 file bình thường")."""
+        """Save the result file (merge / extract & merge mixed sources) to the
+        location the user picked, then keep working with it right in the
+        current conversation — chat history stays intact, nothing gets
+        cleared (like `_on_save_generated`, matching design 3.2b "open like a
+        normal file")."""
         saved_path = save_staged_file(self, str(staged_path), staged_path.name)
         if not saved_path:
             return
@@ -1119,7 +1140,7 @@ class MainWindow(QMainWindow):
         self._adopt_current_file(saved_path, EXT_MAP.get(Path(saved_path).suffix.lower(), ""))
         self.chat.add_system(S.SAVED_CONTINUE.format(name=Path(saved_path).name))
 
-    # ══ Dọn dẹp ══════════════════════════════════════════════════════════════
+    # ══ Cleanup ═══════════════════════════════════════════════════════════════
 
     @log_call
     def closeEvent(self, event):

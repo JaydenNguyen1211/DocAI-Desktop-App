@@ -1,8 +1,8 @@
-"""Client gọi API server DocAI.
+"""Client for calling the DocAI API server.
 
-- Đăng ký / đăng nhập qua Firebase Authentication (Identity Toolkit REST).
-- Gọi chat AI và lấy thông tin tài khoản qua Cloud Function `api` (server proxy).
-Token được lưu vào config.json để giữ đăng nhập giữa các phiên.
+- Sign up / log in via Firebase Authentication (Identity Toolkit REST).
+- Call the AI chat and fetch account info via the `api` Cloud Function (server proxy).
+Tokens are stored in config.json to keep the user logged in across sessions.
 """
 import time
 
@@ -18,11 +18,11 @@ logger = get_logger(__name__)
 
 _IDENTITY = "https://identitytoolkit.googleapis.com/v1/accounts"
 _TOKEN_URL = "https://securetoken.googleapis.com/v1/token"
-_TIMEOUT = 300  # AI có thể mất vài chục giây
+_TIMEOUT = 300  # AI calls can take tens of seconds
 
 
 class ApiError(Exception):
-    """Lỗi có thông báo tiếng Việt để hiển thị cho người dùng."""
+    """Error carrying a Vietnamese message to show the user."""
 
     @log_call
     def __init__(self, message: str, code: str = ""):
@@ -39,12 +39,13 @@ def _friendly(code: str) -> str:
     return S.ERROR_MAP.get(base, S.AUTH_ERROR.format(code=code) if code else S.UNKNOWN_ERROR)
 
 
-# ── Lưu / đọc phiên đăng nhập ──────────────────────────────────────────────
+# ── Save / read the login session ───────────────────────────────────────────
 
-@log_call(log_args=False)  # `data` chứa idToken/refreshToken — không log
+@log_call(log_args=False)  # `data` contains idToken/refreshToken — don't log
 def _store_session(data: dict):
-    """Lưu phiên từ cả 2 nguồn: Identity Toolkit (idToken/refreshToken/expiresIn)
-    và securetoken refresh (id_token/refresh_token/expires_in)."""
+    """Store the session from either source: Identity Toolkit
+    (idToken/refreshToken/expiresIn) or securetoken refresh
+    (id_token/refresh_token/expires_in)."""
     cfg = load_config()
     old = cfg.get("auth", {})
     id_token = data.get("idToken") or data.get("id_token")
@@ -57,13 +58,13 @@ def _store_session(data: dict):
         "refresh_token": refresh_token,
         "uid": data.get("localId") or data.get("user_id") or old.get("uid", ""),
         "email": data.get("email", old.get("email", "")),
-        # expiresIn (giây) → mốc hết hạn tuyệt đối
+        # expiresIn (seconds) → absolute expiry timestamp
         "expires_at": time.time() + int(expires_in) - 60,
     }
     save_config(cfg)
 
 
-@log_call(log_result=False)  # kết quả chứa auth token — không log
+@log_call(log_result=False)  # result contains the auth token — don't log
 def _session() -> dict:
     return load_config().get("auth", {})
 
@@ -87,7 +88,7 @@ def logout():
 
 # ── Firebase Identity Toolkit ──────────────────────────────────────────────
 
-@log_call(log_args=False, log_result=False)  # payload/kết quả chứa password/token
+@log_call(log_args=False, log_result=False)  # payload/result contains password/token
 def _identity(endpoint: str, payload: dict) -> dict:
     key = firebase_api_key()
     try:
@@ -103,7 +104,7 @@ def _identity(endpoint: str, payload: dict) -> dict:
     return body
 
 
-@log_call(log_result=False)  # kết quả chứa idToken/refreshToken
+@log_call(log_result=False)  # result contains idToken/refreshToken
 def signup(email: str, password: str) -> dict:
     data = _identity("signUp", {
         "email": email, "password": password, "returnSecureToken": True,
@@ -112,7 +113,7 @@ def signup(email: str, password: str) -> dict:
     return data
 
 
-@log_call(log_result=False)  # kết quả chứa idToken/refreshToken
+@log_call(log_result=False)  # result contains idToken/refreshToken
 def login(email: str, password: str) -> dict:
     data = _identity("signInWithPassword", {
         "email": email, "password": password, "returnSecureToken": True,
@@ -121,7 +122,7 @@ def login(email: str, password: str) -> dict:
     return data
 
 
-@log_call(log_result=False)  # trả về id_token thô
+@log_call(log_result=False)  # returns the raw id_token
 def _refresh() -> str:
     sess = _session()
     token = sess.get("refresh_token")
@@ -142,7 +143,7 @@ def _refresh() -> str:
     return _session()["id_token"]
 
 
-@log_call(log_result=False)  # trả về id_token thô
+@log_call(log_result=False)  # returns the raw id_token
 def _valid_token() -> str:
     sess = _session()
     if not sess.get("id_token"):
@@ -152,7 +153,7 @@ def _valid_token() -> str:
     return sess["id_token"]
 
 
-# ── Gọi server (Cloud Function `api`) ──────────────────────────────────────
+# ── Call the server (Cloud Function `api`) ──────────────────────────────────
 
 @log_call
 def _call(method: str, path: str, json_body: dict | None = None,
@@ -183,7 +184,7 @@ def _call(method: str, path: str, json_body: dict | None = None,
 
 @log_call
 def me() -> dict:
-    """Trả về {plan, quota_used, quota_limit, quota_remaining, business, email}."""
+    """Returns {plan, quota_used, quota_limit, quota_remaining, business, email}."""
     return _call("GET", "/me")
 
 
@@ -194,8 +195,9 @@ def update_business(business: dict) -> dict:
 
 @log_call
 def get_rates() -> dict:
-    """Tham số tính lương/BHXH/thuế hiện hành theo server (`{ok, source,
-    rates}`) — dùng bởi `modules.business.payroll`. Không trừ quota."""
+    """Current payroll/social-insurance/tax parameters from the server
+    (`{ok, source, rates}`) — used by `modules.business.payroll`. Does not
+    consume quota."""
     return _call("GET", "/rates")
 
 
@@ -203,11 +205,12 @@ def get_rates() -> dict:
 def chat(message: str, file_name: str = "", file_type: str = "",
          business: dict | None = None, history: list | None = None,
          attachment: dict | None = None) -> dict:
-    """Gọi AI qua server. Trả về {text, plan, quota_remaining}.
+    """Call the AI via the server. Returns {text, plan, quota_remaining}.
 
-    `attachment` (tùy chọn): {"kind": "pdf"|"image", "media_type": ...,
-    "data_b64": ...} — nội dung file PDF/ảnh đang mở, để Claude đọc trực tiếp
-    (PDF: cả bản có chữ lẫn bản quét ảnh; ảnh: qua Claude Vision).
+    `attachment` (optional): {"kind": "pdf"|"image", "media_type": ...,
+    "data_b64": ...} — content of the currently open PDF/image, so Claude
+    can read it directly (PDF: both text and scanned-image; image: via
+    Claude Vision).
     """
     return _call("POST", "/chat", {
         "message": message,
@@ -221,11 +224,12 @@ def chat(message: str, file_name: str = "", file_type: str = "",
 
 @log_call
 def extract_table(attachment: dict, message: str = "") -> dict:
-    """Nhờ AI đọc PDF/ảnh (hóa đơn, hợp đồng, bảng biểu…) và trả về nội dung
-    dạng bảng theo quy ước "--- Sheet: X ---" + CSV — cùng định dạng luồng
-    "tạo tài liệu mới bằng chat" đã dùng, nên chỉ cần gọi thẳng
-    `document.create_excel_from_text()` với text trả về, không cần parse riêng.
-    Trả về {ok, text, plan, quota_remaining}.
+    """Ask the AI to read a PDF/image (invoice, contract, table…) and return
+    the content as a table, using the "--- Sheet: X ---" + CSV convention —
+    the same format the "create new document via chat" flow already uses,
+    so the returned text can be passed straight to
+    `document.create_excel_from_text()` with no separate parsing needed.
+    Returns {ok, text, plan, quota_remaining}.
     """
     return _call("POST", "/extract_table", {
         "attachment": attachment,
@@ -235,10 +239,11 @@ def extract_table(attachment: dict, message: str = "") -> dict:
 
 @log_call
 def extract_text(attachment: dict, message: str = "") -> dict:
-    """Nhờ AI đọc (OCR) toàn bộ chữ trong ảnh chụp tài liệu, trả về văn bản
-    THUẦN giữ đúng cách ngắt đoạn gốc — khác `extract_table` (chỉ dành cho dữ
-    liệu dạng bảng). Dùng cho "Ảnh → Word chỉnh sửa được" và PDF có lớp text ẩn.
-    Trả về {ok, text, plan, quota_remaining}.
+    """Ask the AI to OCR all the text out of a scanned document image,
+    returning PLAIN text that preserves the original paragraph breaks —
+    unlike `extract_table` (table data only). Used for "Image → editable
+    Word" and PDFs with a hidden text layer.
+    Returns {ok, text, plan, quota_remaining}.
     """
     return _call("POST", "/extract_text", {
         "attachment": attachment,
@@ -250,13 +255,15 @@ def extract_text(attachment: dict, message: str = "") -> dict:
 def edit_file(message: str, file_name: str, file_type: str,
               outline: str = "", history: list | None = None,
               attachment: dict | None = None) -> dict:
-    """Hỏi AI danh sách lệnh sửa file (word/excel/ppt/image).
+    """Ask the AI for a list of edit commands for a file (word/excel/ppt/image).
 
-    `outline` là cấu trúc tài liệu (đoạn/trang/ô/slide) để AI nhắm đúng vị trí.
-    `attachment` (tùy chọn, dùng cho ảnh): nội dung ảnh để Claude vẫn trả lời
-    được câu hỏi không phải lệnh sửa, xem `chat()`.
-    Trả về {edits, reply, plan, quota_remaining} — app tự áp lệnh lên file;
-    `edits` rỗng nghĩa là câu chat không phải yêu cầu sửa.
+    `outline` is the document structure (paragraph/page/cell/slide) so the AI
+    can target the right location.
+    `attachment` (optional, used for images): the image content so Claude
+    can still answer questions that aren't edit commands, see `chat()`.
+    Returns {edits, reply, plan, quota_remaining} — the app applies the
+    commands to the file itself; an empty `edits` means the chat message
+    wasn't an edit request.
     """
     return _call("POST", "/edit", {
         "message": message,

@@ -1,6 +1,7 @@
-"""Worker sinh tài liệu mới bằng chat AI (7.4) — gọi `/chat` (server thật)
-lấy nội dung, tách trang/sheet, rồi dựng file .docx/.xlsx/.pptx thật ở luồng
-nền, phát tiến trình từng trang cho UI (checklist 7.4)."""
+"""Worker that generates a new document via AI chat (7.4) — calls `/chat`
+(the real server) to get content, splits it into pages/sheets, then builds
+the real .docx/.xlsx/.pptx file on a background thread, emitting per-page
+progress for the UI (7.4 checklist)."""
 import os
 import re
 import tempfile
@@ -24,11 +25,11 @@ _SUFFIX = {"word": ".docx", "excel": ".xlsx", "ppt": ".pptx"}
 
 
 class DocGenWorker(QThread):
-    """page_done(i, total, label) trong lúc dựng; finished_ok(tmp_path,
-    sections, quota_data) khi xong; failed(message, pages_done,
-    partial_sections) khi lỗi — `partial_sections` chỉ khác rỗng khi nội
-    dung đã lấy được từ server nhưng bước dựng file cục bộ thất bại (khi đó
-    có thể lưu tạm phần đã có — EC5)."""
+    """page_done(i, total, label) while building; finished_ok(tmp_path,
+    sections, quota_data) when done; failed(message, pages_done,
+    partial_sections) on error — `partial_sections` is non-empty only when
+    content was already fetched from the server but the local file-building
+    step failed (in that case the partial content can still be saved — EC5)."""
 
     page_done = Signal(int, int, str)
     finished_ok = Signal(str, object, dict)
@@ -87,7 +88,7 @@ class DocGenWorker(QThread):
                 create_pptx(sections, tmp_path)
             else:
                 create_excel_from_text(raw_text, tmp_path)
-        except Exception as exc:  # noqa: BLE001 — lỗi cục bộ, nội dung đã soạn vẫn còn
+        except Exception as exc:  # noqa: BLE001 — local error, generated content is still around
             logger.exception("Failed to build generated %s file locally", self._file_type)
             self.failed.emit(S.BUILD_FAILED.format(error=exc), total, sections)
             return

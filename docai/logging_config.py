@@ -1,19 +1,19 @@
-"""Hệ thống log tập trung cho DocAI Desktop App.
+"""Centralized logging system for the DocAI Desktop App.
 
-Mọi module trong `docai` dùng CHUNG cấu hình này để log có định dạng thống
-nhất, có timestamp chuẩn (ngày-giờ-mili giây, giờ local máy người dùng),
-tự động xoay vòng file theo ngày, tách riêng file lỗi để soi nhanh, và
-không để lọt dữ liệu nhạy cảm (mật khẩu/token) ra log.
+Every module in `docai` shares this ONE configuration so logs have a
+consistent format, a proper timestamp (date-time-millisecond, user's local
+time), automatic daily file rotation, a separate error file for quick
+triage, and no sensitive data (passwords/tokens) leaking into the logs.
 
-Vị trí file log: ``%APPDATA%/DocAI/logs/`` (Windows) hoặc ``~/DocAI/logs``
-(macOS/Linux) — cùng thư mục với `config.json` (xem `account/config.py`):
+Log file location: ``%APPDATA%/DocAI/logs/`` (Windows) or ``~/DocAI/logs``
+(macOS/Linux) — same directory as `config.json` (see `account/config.py`):
 
-    docai.log        toàn bộ log từ DEBUG trở lên, xoay theo ngày (giữ 14 ngày)
-    docai_error.log  chỉ WARNING/ERROR/CRITICAL, xoay theo ngày (giữ 30 ngày)
+    docai.log        everything from DEBUG up, rotated daily (14 days kept)
+    docai_error.log  WARNING/ERROR/CRITICAL only, rotated daily (30 days kept)
 
-Cách dùng trong 1 module bất kỳ::
+Usage in any module::
 
-    from ..logging_config import get_logger, log_call   # số dấu chấm tùy độ sâu
+    from ..logging_config import get_logger, log_call   # dot count depends on depth
 
     logger = get_logger(__name__)
 
@@ -22,15 +22,15 @@ Cách dùng trong 1 module bất kỳ::
         logger.debug("detail worth tracking: path=%s", path)
         ...
 
-`setup_logging()` chỉ gọi 1 LẦN DUY NHẤT ở điểm khởi động ứng dụng
-(`docai/bootstrap.py::main()`), TRƯỚC khi tạo QApplication — mọi logger tạo
-bằng `get_logger()` ở nơi khác tự động thừa hưởng cấu hình này (kể cả khi
-module đó được import trước khi `setup_logging()` chạy).
+`setup_logging()` must be called EXACTLY ONCE, at application startup
+(`docai/bootstrap.py::main()`), BEFORE the QApplication is created — every
+logger created elsewhere via `get_logger()` automatically inherits this
+configuration (even if that module was imported before `setup_logging()` ran).
 
-Điều chỉnh độ chi tiết hiện trên console (không ảnh hưởng file log — file
-luôn ghi đầy đủ từ DEBUG) bằng biến môi trường::
+Adjust how verbose the console output is (does not affect the log files —
+they always capture everything from DEBUG) via an environment variable::
 
-    DOCAI_LOG_LEVEL=DEBUG   (mặc định: INFO)
+    DOCAI_LOG_LEVEL=DEBUG   (default: INFO)
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
-# ── Vị trí file log ──────────────────────────────────────────────────────────
+# ── Log file location ────────────────────────────────────────────────────────
 
 def _log_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home())
@@ -63,7 +63,7 @@ _FILE_FMT = (
 )
 _CONSOLE_FMT = "%(asctime)s.%(msecs)03d | %(levelname)-8s | %(name)s | %(message)s"
 
-# Tên logger dùng cho các sự kiện không gắn với 1 module code cụ thể.
+# Logger names used for events not tied to a specific code module.
 QT_LOGGER_NAME = "docai.qt"
 UNCAUGHT_LOGGER_NAME = "docai.uncaught"
 
@@ -71,8 +71,8 @@ _configured = False
 
 
 def setup_logging(console: bool = True) -> None:
-    """Cấu hình logging cho toàn bộ app. Gọi 1 lần ở đầu `main()`. An toàn khi
-    gọi nhiều lần (lần sau bị bỏ qua)."""
+    """Configure logging for the whole app. Call once at the top of `main()`.
+    Safe to call multiple times (subsequent calls are no-ops)."""
     global _configured
     if _configured:
         return
@@ -128,7 +128,7 @@ def setup_logging(console: bool = True) -> None:
                 logging.Formatter(fmt=_CONSOLE_FMT, datefmt=_DATEFMT))
             root.addHandler(console_handler)
 
-    # Giảm nhiễu log DEBUG từ thư viện bên thứ 3 (vẫn thấy WARNING/ERROR).
+    # Quiet down DEBUG noise from third-party libraries (WARNING/ERROR still show).
     for noisy in ("urllib3", "PIL", "fontTools", "comtypes", "charset_normalizer"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
@@ -144,11 +144,11 @@ def setup_logging(console: bool = True) -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Trả về logger chuẩn cho 1 module — dùng `get_logger(__name__)`."""
+    """Return the standard logger for a module — use `get_logger(__name__)`."""
     return logging.getLogger(name)
 
 
-# ── Bắt lỗi không lường trước ────────────────────────────────────────────────
+# ── Catch unforeseen errors ──────────────────────────────────────────────────
 
 def _excepthook(exc_type, exc_value, exc_tb):
     if issubclass(exc_type, KeyboardInterrupt):
@@ -166,8 +166,9 @@ def install_excepthook() -> None:
 
 
 def install_qt_message_handler() -> None:
-    """Chuyển log nội bộ của Qt (qDebug/qWarning/qCritical/qFatal — VD lỗi
-    plugin ảnh, font, v.v.) vào cùng hệ thống log thay vì chỉ in ra stderr."""
+    """Route Qt's internal logging (qDebug/qWarning/qCritical/qFatal — e.g.
+    image plugin/font errors) into the same logging system instead of just
+    printing to stderr."""
     from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
     qt_logger = logging.getLogger(QT_LOGGER_NAME)
@@ -185,12 +186,12 @@ def install_qt_message_handler() -> None:
     qInstallMessageHandler(_handler)
 
 
-# ── Decorator log vào/ra hàm & method ───────────────────────────────────────
+# ── Decorator that logs function/method entry & exit ────────────────────────
 
 _SENSITIVE_KEYS = {
     "password", "pass", "pwd", "token", "id_token", "refresh_token",
     "access_token", "api_key", "apikey", "secret", "authorization",
-    "data_b64",  # nội dung file base64 — quá dài, không cần thấy trong log
+    "data_b64",  # base64 file content — too long, no need to see it in logs
 }
 _ARG_MAXLEN = 300
 
@@ -201,9 +202,9 @@ def _safe_repr(value: Any, max_len: int = _ARG_MAXLEN) -> str:
     try:
         text = repr(value)
     except Exception:
-        return f"<{type(value).__name__}: lỗi khi repr()>"
+        return f"<{type(value).__name__}: error during repr()>"
     if len(text) > max_len:
-        return f"{text[:max_len]}...(cắt bớt, dài {len(text)} ký tự)"
+        return f"{text[:max_len]}...(truncated, {len(text)} chars long)"
     return text
 
 
@@ -220,12 +221,12 @@ def log_call(
     log_args: bool = True,
     log_result: bool = True,
 ) -> Any:
-    """Decorator ghi log khi vào/ra 1 hàm hoặc method: tham số (đã che dữ
-    liệu nhạy cảm), thời gian chạy (ms), và exception kèm traceback đầy đủ
-    nếu có — rồi re-raise nguyên vẹn (không nuốt lỗi).
+    """Decorator that logs entry/exit of a function or method: arguments
+    (sensitive data masked), run time (ms), and any exception with full
+    traceback — then re-raises it unchanged (never swallows an error).
 
-    Dùng mặc định ``@log_call``, hoặc tùy biến khi log kết quả/tham số quá
-    lớn hay nhạy cảm::
+    Use the plain ``@log_call``, or customize it when the result/arguments
+    are too large or sensitive to log::
 
         @log_call(log_result=False)
         def read_file_bytes(path: str) -> bytes: ...
@@ -240,8 +241,9 @@ def log_call(
         except (TypeError, ValueError):
             params = []
         is_method = bool(params) and params[0] in ("self", "cls")
-        # Tên tham số theo vị trí — để che dữ liệu nhạy cảm (VD `password`)
-        # kể cả khi gọi hàm theo kiểu positional thay vì keyword.
+        # Positional parameter names — needed to mask sensitive data (e.g.
+        # `password`) even when the function is called positionally, not
+        # by keyword.
         pos_names = params[1:] if is_method else params
 
         @functools.wraps(fn)
@@ -286,10 +288,11 @@ def log_call(
 @contextmanager
 def log_block(name: str, logger: Optional[logging.Logger] = None,
               level: int = logging.DEBUG):
-    """Log thời gian chạy + lỗi của 1 đoạn code bất kỳ (không phải cả hàm) —
-    dùng cho vòng lặp/khối xử lý dài bên trong 1 method::
+    """Log the run time + any error of an arbitrary block of code (not a
+    whole function) — useful for a long loop/processing block inside a
+    method::
 
-        with log_block("đọc toàn bộ sheet Excel", logger):
+        with log_block("reading the entire Excel sheet", logger):
             for row in sheet.iter_rows():
                 ...
     """

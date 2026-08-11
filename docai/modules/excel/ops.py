@@ -1,13 +1,13 @@
-"""Bộ thao tác chỉnh sửa file Excel (.xlsx) cho luồng sửa-bằng-chat.
+"""The set of Excel (.xlsx) edit operations for the edit-via-chat flow.
 
-Hai phần:
-  · outline()/outline_text() — mô tả cấu trúc bảng tính (sheet, vùng dữ liệu,
-    bảng, biểu đồ) gửi lên server làm ngữ cảnh cho Claude.
-  · apply_edits() — thực thi danh sách lệnh sửa Claude trả về.
+Two parts:
+  · outline()/outline_text() — describes the spreadsheet's structure (sheets,
+    data ranges, tables, charts) sent to the server as context for Claude.
+  · apply_edits() — executes the list of edit commands Claude returns.
 
-Địa chỉ ô/vùng dùng ký hiệu A1 (VD "B2", "B2:D10"). Mọi lệnh (trừ add_sheet/
-delete_sheet/rename_sheet, vốn thao tác ở cấp workbook) có thể kèm "sheet"
-(tên sheet, bỏ trống = sheet đang active).
+Cell/range addresses use A1 notation (e.g. "B2", "B2:D10"). Every command
+(except add_sheet/delete_sheet/rename_sheet, which operate at the workbook
+level) can include "sheet" (sheet name, blank = the active sheet).
 """
 import copy
 import re
@@ -26,31 +26,31 @@ logger = get_logger(__name__)
 
 
 class ExcelOpError(Exception):
-    """Lệnh sửa không hợp lệ — thông báo tiếng Việt cho người dùng."""
+    """Invalid edit command — message shown to the user in Vietnamese."""
 
 
-# Các thao tác được phép — cũng là danh sách server mô tả cho Claude.
+# Allowed operations — also the list the server describes to Claude.
 OPS = (
-    "set_cell",              # đặt giá trị/công thức cho 1 ô
-    "fill_range",            # điền dữ liệu 2 chiều từ 1 ô bắt đầu
-    "append_row",            # thêm 1 hàng đầy đủ vào cuối sheet
-    "insert_row",            # chèn hàng trống
-    "delete_row",            # xóa hàng
-    "insert_column",         # chèn cột trống
-    "delete_column",         # xóa cột
-    "format_cells",          # font/cỡ/màu/nền/viền/số/căn lề cho ô hoặc vùng
-    "merge_cells",           # gộp vùng ô
-    "unmerge_cells",         # tách vùng ô đã gộp
-    "create_table",          # chuyển vùng dữ liệu thành Table Excel
-    "sort_range",            # sắp xếp vùng dữ liệu theo 1+ cột
-    "filter_range",          # lọc: ẩn dòng không thỏa điều kiện trên 1 cột
-    "clear_filter",          # bỏ lọc, hiện lại toàn bộ dòng
-    "create_chart",          # tạo biểu đồ cột/đường/tròn
-    "delete_chart",          # xóa biểu đồ
-    "add_sheet",             # thêm sheet mới
-    "delete_sheet",          # xóa sheet
-    "rename_sheet",          # đổi tên sheet
-    "freeze_panes",          # cố định hàng/cột khi cuộn
+    "set_cell",              # set a value/formula for 1 cell
+    "fill_range",            # fill 2D data starting from 1 cell
+    "append_row",            # add 1 full row at the end of the sheet
+    "insert_row",            # insert an empty row
+    "delete_row",            # delete a row
+    "insert_column",         # insert an empty column
+    "delete_column",         # delete a column
+    "format_cells",          # font/size/color/fill/border/number/align for a cell or range
+    "merge_cells",           # merge a range of cells
+    "unmerge_cells",         # split a merged range of cells
+    "create_table",          # turn a data range into an Excel Table
+    "sort_range",            # sort a data range by 1+ columns
+    "filter_range",          # filter: hide rows that don't match a condition on 1 column
+    "clear_filter",          # clear the filter, show all rows again
+    "create_chart",          # create a bar/line/pie chart
+    "delete_chart",          # delete a chart
+    "add_sheet",             # add a new sheet
+    "delete_sheet",          # delete a sheet
+    "rename_sheet",          # rename a sheet
+    "freeze_panes",          # freeze rows/columns while scrolling
 )
 
 _CHART_CLASSES = {"bar": BarChart, "line": LineChart, "pie": PieChart}
@@ -70,7 +70,7 @@ _MAX_COLS_PREVIEW = 18
 _CELL_TRUNC = 40
 
 
-# ── Tiện ích chung ───────────────────────────────────────────────────────────
+# ── Shared helpers ────────────────────────────────────────────────────────────
 
 @log_call
 def _need(edit: dict, key: str):
@@ -122,8 +122,8 @@ def _range_bounds(edit: dict, key: str = "range"):
 
 @log_call
 def _col_index_in_range(min_col: int, max_col: int, col_ref) -> int:
-    """column trong keys/filter_range: số nguyên = offset 0-based trong vùng,
-    chuỗi = chữ cột tuyệt đối (VD "C")."""
+    """column in keys/filter_range: an int = 0-based offset within the range,
+    a string = an absolute column letter (e.g. "C")."""
     if isinstance(col_ref, int):
         idx = min_col + col_ref
     else:
@@ -142,7 +142,7 @@ def _clean_argb(color) -> str:
     return "FF" + hex_color
 
 
-# ── Đọc cấu trúc ───────────────────────────────────────────────────────────
+# ── Read structure ────────────────────────────────────────────────────────
 
 @log_call
 def _cell_preview(value) -> str:
@@ -165,7 +165,7 @@ def _chart_title(chart):
 
 @log_call
 def outline(path: str) -> dict:
-    """Cấu trúc bảng tính để gửi lên server làm ngữ cảnh cho Claude."""
+    """The spreadsheet's structure to send to the server as context for Claude."""
     wb = openpyxl.load_workbook(path, data_only=False)
     active_title = wb.active.title if wb.active is not None else None
     sheets = []
@@ -197,7 +197,7 @@ def outline(path: str) -> dict:
 
 @log_call
 def outline_text(path: str) -> str:
-    """Outline dạng văn bản gọn cho prompt."""
+    """A compact text-form outline for the prompt."""
     data = outline(path)
     lines = [f"Bảng tính có {data['sheet_count']} sheet."]
     for info in data["sheets"]:
@@ -227,11 +227,12 @@ def outline_text(path: str) -> str:
     return "\n".join(lines)
 
 
-# ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
+# ── Execute edit commands ────────────────────────────────────────────────────
 
 @log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
-    """Áp lần lượt các lệnh sửa lên file, lưu một lần. Trả về mô tả từng lệnh."""
+    """Apply the edit commands to the file in order, save once. Returns a
+    description of each command."""
     if not edits:
         return []
 
@@ -296,11 +297,11 @@ def _run_op(wb, op: str, edit: dict) -> str:
     if op == "delete_chart":
         return _delete_chart(ws, edit)
 
-    # freeze_panes — op cuối cùng còn lại trong OPS.
+    # freeze_panes — the last remaining op in OPS.
     return _freeze_panes(ws, edit)
 
 
-# ── Ô & vùng — nội dung cơ bản ───────────────────────────────────────────────
+# ── Cells & ranges — basic content ───────────────────────────────────────────
 
 @log_call
 def _set_cell(ws, edit: dict) -> str:
@@ -384,7 +385,7 @@ def _delete_column(ws, edit: dict) -> str:
 
 @log_call
 def _col_index_value(value) -> int:
-    """index của insert_column/delete_column: số nguyên (1-based) hoặc chữ cột."""
+    """index for insert_column/delete_column: an int (1-based) or a column letter."""
     if isinstance(value, int):
         return value
     value_str = str(value).strip()
@@ -396,7 +397,7 @@ def _col_index_value(value) -> int:
         raise ExcelOpError(f"Cột không hợp lệ: {value}.")
 
 
-# ── Định dạng ────────────────────────────────────────────────────────────────
+# ── Formatting ───────────────────────────────────────────────────────────────
 
 @log_call
 def _format_cells(ws, edit: dict) -> str:
@@ -523,7 +524,7 @@ def _unmerge_cells(ws, edit: dict) -> str:
     return f"tách ô đã gộp {rng} ở sheet «{ws.title}»"
 
 
-# ── Bảng, sắp xếp, lọc ───────────────────────────────────────────────────────
+# ── Tables, sort, filter ──────────────────────────────────────────────────────
 
 @log_call
 def _sanitize_table_name(name, wb) -> str:
@@ -723,7 +724,7 @@ def _clear_filter(ws, edit: dict) -> str:
     return f"bỏ lọc, hiện lại toàn bộ dòng ở sheet «{ws.title}»"
 
 
-# ── Biểu đồ ──────────────────────────────────────────────────────────────────
+# ── Charts ───────────────────────────────────────────────────────────────────
 
 @log_call
 def _create_chart(ws, edit: dict) -> str:

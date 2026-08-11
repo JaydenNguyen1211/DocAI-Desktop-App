@@ -1,4 +1,4 @@
-"""Panel xem trước tài liệu — render trang qua Word COM / LibreOffice / fitz / PIL."""
+"""Document preview panel — renders pages via Word COM / LibreOffice / fitz / PIL."""
 import bisect
 import os
 import subprocess
@@ -48,27 +48,31 @@ def _open_path(path: str) -> None:
 
 
 class PagePreviewWidget(QScrollArea):
-    """Danh sách trang xem trước — ảo hoá theo viewport.
+    """List of preview pages — virtualized against the viewport.
 
-    Với sách vài trăm–nghìn trang, việc RASTER từng trang và TẠO WIDGET cho
-    từng trang đều là việc tốn thời gian tỉ lệ với số trang — làm hết ngay
-    lúc mở file (dù ở luồng nền hay luồng chính) khiến người dùng phải chờ
-    rất lâu mới thấy gì, hoặc làm đơ UI nếu chạy tuần tự trên luồng chính.
+    For a document with hundreds to thousands of pages, RASTERIZING each
+    page and CREATING A WIDGET for each page both take time proportional to
+    the page count — doing it all right when the file opens (whether on a
+    background thread or the main thread) makes the user wait a long time
+    before seeing anything, or freezes the UI if run synchronously on the
+    main thread.
 
-    Cách này chỉ: mở tài liệu lấy số trang + kích thước trang đầu (đọc
-    metadata, không raster — rẻ dù tài liệu vài nghìn trang), rồi CHỈ dựng
-    widget + raster cho một cửa sổ nhỏ các trang quanh vùng đang xem
-    (`_BUFFER_PAGES` trang đệm mỗi phía). Cuộn tới đâu, cửa sổ dịch tới đó
-    (debounce theo `_scroll_timer`) — trang cũ ngoài cửa sổ được giải
-    phóng khỏi layout, phần khoảng trống nó để lại được bù bằng 2 spacer
-    trên/dưới nên scrollbar vẫn phản ánh đúng tổng chiều dài tài liệu.
+    This approach instead: opens the document to get the page count + first
+    page size (a metadata read, no rasterizing — cheap even for a document
+    with thousands of pages), then ONLY builds widgets + rasterizes for a
+    small window of pages around the currently visible area
+    (`_BUFFER_PAGES` buffer pages on each side). As the user scrolls, the
+    window shifts (debounced via `_scroll_timer`) — pages that fall outside
+    the window are released from the layout, and the gap they leave behind
+    is compensated by 2 spacers (top/bottom) so the scrollbar still
+    reflects the document's true total length.
     """
 
     _PAGE_W = 480
-    _BUFFER_PAGES = 4        # số trang đệm thêm ngoài viewport mỗi phía
-    _CACHE_MAX = 60          # số pixmap đã decode giữ lại tối đa (LRU)
+    _BUFFER_PAGES = 4        # extra buffer pages outside the viewport on each side
+    _CACHE_MAX = 60          # max decoded pixmaps kept around (LRU)
     _SCROLL_DEBOUNCE_MS = 80
-    _page_ready = Signal(int, int, object, int)  # (thế hệ, idx, QImage, chiều cao thật)
+    _page_ready = Signal(int, int, object, int)  # (generation, idx, QImage, real height)
 
     @log_call
     def __init__(self, parent=None):
@@ -111,7 +115,7 @@ class PagePreviewWidget(QScrollArea):
         super().resizeEvent(event)
         self._scroll_timer.start()
 
-    # ── API công khai ────────────────────────────────────────────────────────
+    # ── Public API ───────────────────────────────────────────────────────────
 
     @log_call
     def show_message(self, msg: str):
@@ -125,7 +129,7 @@ class PagePreviewWidget(QScrollArea):
 
     @log_call
     def load_source(self, source):
-        """`source`: có .page_count, .page_size(i), .png_path(i), .close()."""
+        """`source`: has .page_count, .page_size(i), .png_path(i), .close()."""
         self._load_gen += 1
         gen = self._load_gen
         self._reset(close_source=True)
@@ -151,12 +155,12 @@ class PagePreviewWidget(QScrollArea):
 
     @log_call
     def goto_page(self, idx: int):
-        """Cuộn tới trang `idx` (0-based) — dùng cho kết quả tìm kiếm từ khóa."""
+        """Scroll to page `idx` (0-based) — used for keyword search results."""
         if not self._cum_offsets or not 0 <= idx < len(self._cum_offsets):
             return
         self.verticalScrollBar().setValue(self._cum_offsets[idx])
 
-    # ── Bố cục ảo hoá ────────────────────────────────────────────────────────
+    # ── Virtualized layout ───────────────────────────────────────────────────
 
     @log_call
     def _reset(self, close_source: bool):
@@ -190,7 +194,7 @@ class PagePreviewWidget(QScrollArea):
 
     @log_call
     def _span_height(self, start: int, end: int) -> int:
-        """Chiều cao (kèm khoảng cách nội bộ) của các trang [start, end)."""
+        """Height (including inter-page spacing) of pages [start, end)."""
         if end <= start:
             return 0
         gap = self._vbox.spacing()
@@ -257,14 +261,14 @@ class PagePreviewWidget(QScrollArea):
                 target=self._decode_pages, args=(gen, source, to_decode), daemon=True,
             ).start()
 
-    # ── Raster + decode nền ─────────────────────────────────────────────────
+    # ── Background rasterizing + decoding ───────────────────────────────────
 
     @log_call
     def _decode_pages(self, gen: int, source, indices: list[int]):
         from PIL import Image
         for idx in indices:
             if gen != self._load_gen:
-                return   # đã load file khác hoặc cửa sổ đã dịch — dừng, khỏi phí công
+                return   # a different file was loaded or the window moved — stop, no point continuing
             try:
                 png_path = source.png_path(idx)
                 with Image.open(png_path) as img:
@@ -278,7 +282,7 @@ class PagePreviewWidget(QScrollArea):
             try:
                 self._page_ready.emit(gen, idx, qimg, new_h)
             except RuntimeError:
-                return   # widget đã bị hủy (đóng app giữa chừng lúc còn decode)
+                return   # widget was already destroyed (app closed mid-decode)
 
     @log_call
     def _on_page_ready(self, gen: int, idx: int, qimage, real_h: int):
@@ -306,16 +310,16 @@ class PagePreviewWidget(QScrollArea):
 class PreviewPanel(QFrame):
     convert_requested = Signal()
     extract_text_requested = Signal()
-    _preview_ready = Signal(int, object)   # (thế hệ, source)
+    _preview_ready = Signal(int, object)   # (generation, source)
     _preview_err = Signal(int, str)
-    _pdf_text_ready = Signal(int, list)    # (thế hệ, văn bản từng trang)
+    _pdf_text_ready = Signal(int, list)    # (generation, per-page text)
 
     @log_call
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("previewPanel")
         self.setMinimumWidth(380)
-        self._gen = 0   # token thế hệ — loại kết quả render cũ về muộn
+        self._gen = 0   # generation token — discards stale render results that arrive late
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(1, 1, 1, 1)
@@ -365,7 +369,7 @@ class PreviewPanel(QFrame):
         hdr_lay.addWidget(convert_btn)
         lay.addWidget(hdr)
 
-        # ── Tìm kiếm từ khóa (chỉ hiện với PDF) ──────────────────────────────
+        # ── Keyword search (only shown for PDF) ─────────────────────────────
         self._search_bar = QFrame()
         self._search_bar.setVisible(False)
         search_lay = QHBoxLayout(self._search_bar)
@@ -389,7 +393,7 @@ class PreviewPanel(QFrame):
         search_lay.addWidget(next_btn)
         lay.addWidget(self._search_bar)
 
-        # ── Trang xem trước ───────────────────────────────────────────────────
+        # ── Preview pages ────────────────────────────────────────────────────
         self.pages = PagePreviewWidget()
         lay.addWidget(self.pages, stretch=1)
 
@@ -406,7 +410,7 @@ class PreviewPanel(QFrame):
         self._preview_err.connect(self._on_err)
         self._pdf_text_ready.connect(self._on_pdf_text_ready)
 
-    # ── Nạp file (mở nguồn trang ở luồng nền) ───────────────────────────────
+    # ── Load a file (open the page source on a background thread) ──────────
 
     @log_call
     def load_file(self, path: str, file_type: str, name: str):
@@ -462,7 +466,7 @@ class PreviewPanel(QFrame):
     @log_call
     def _on_ready(self, gen: int, source):
         if gen != self._gen:
-            source.close()   # kết quả của file đã bị thay — bỏ, đóng nguồn
+            source.close()   # result for a file that's since been replaced — discard, close the source
             return
         self.pages.load_source(source)
 
@@ -476,7 +480,7 @@ class PreviewPanel(QFrame):
     def cleanup(self):
         self.pages.cleanup()
 
-    # ── Tìm kiếm từ khóa trong PDF ───────────────────────────────────────────
+    # ── Keyword search inside a PDF ──────────────────────────────────────────
 
     @log_call
     def _on_pdf_text_ready(self, gen: int, pages: list):
@@ -528,7 +532,7 @@ class PreviewPanel(QFrame):
         self._update_search_count()
         self.pages.goto_page(self._search_matches[self._search_pos])
 
-    # ── 7.6: mở thư mục chứa file / mở bằng ứng dụng mặc định ────────────────
+    # ── 7.6: open the containing folder / open with the default app ────────
 
     @log_call
     def _open_folder(self):

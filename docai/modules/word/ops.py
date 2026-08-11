@@ -1,12 +1,12 @@
-"""Bộ thao tác chỉnh sửa file Word (.docx) cho luồng sửa-bằng-chat.
+"""The set of Word (.docx) edit operations for the edit-via-chat flow.
 
-Hai phần:
-  · `outline()` — mô tả cấu trúc tài liệu (đoạn, trang, bảng, style) gửi lên
-    server để Claude biết nhắm vào đâu.
-  · `apply_edits()` — thực thi danh sách lệnh sửa Claude trả về.
+Two parts:
+  · `outline()` — describes the document's structure (paragraphs, pages,
+    tables, styles) sent to the server so Claude knows what to target.
+  · `apply_edits()` — executes the list of edit commands Claude returns.
 
-Ranh giới TRANG được xác định theo ngắt trang thủ công trong file (page break
-hoặc thuộc tính page-break-before) — không phải trang do Word dàn trang lại.
+PAGE boundaries are determined by manual page breaks in the file (page break
+or the page-break-before property) — not pages as re-laid-out by Word.
 """
 import copy
 from pathlib import Path
@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 
 class WordOpError(Exception):
-    """Lệnh sửa không hợp lệ — thông báo tiếng Việt cho người dùng."""
+    """Invalid edit command — message shown to the user in Vietnamese."""
 
 
 _ALIGN = {
@@ -37,33 +37,33 @@ _ALIGN = {
 
 _LIST_STYLES = {"bullet": "List Bullet", "number": "List Number"}
 
-# Các thao tác được phép — cũng là danh sách server mô tả cho Claude.
+# Allowed operations — also the list the server describes to Claude.
 OPS = (
-    "append_paragraph",     # thêm đoạn ở cuối tài liệu
-    "insert_paragraph",     # chèn đoạn trước/sau một đoạn cụ thể
-    "append_to_paragraph",  # nối thêm chữ vào cuối một đoạn có sẵn
-    "replace_paragraph",    # thay toàn bộ nội dung một đoạn
-    "delete_paragraph",     # xóa một đoạn
-    "replace_text",         # tìm & thay chuỗi trong toàn tài liệu
-    "format_paragraph",     # font/cỡ/đậm/nghiêng/gạch chân/màu/căn lề/thụt lề/giãn dòng…
-    "set_heading",          # đặt đoạn thành tiêu đề cấp N
-    "set_list",             # đặt/bỏ danh sách gạch đầu dòng hoặc đánh số
-    "add_page",             # thêm trang mới ở cuối
-    "insert_page",          # chèn trang mới sau một trang cụ thể
-    "delete_page",          # xóa một trang
-    "create_table",         # tạo bảng mới
-    "add_table_row",        # thêm hàng vào bảng có sẵn
-    "delete_table_row",     # xóa hàng khỏi bảng
-    "add_table_column",     # thêm cột vào bảng có sẵn
-    "delete_table_column",  # xóa cột khỏi bảng
-    "set_table_cell",       # đặt lại nội dung 1 ô có sẵn trong bảng
-    "merge_table_cells",    # gộp một vùng ô trong bảng
-    "split_table_cell",     # tách một ô đã gộp thành nhiều ô
-    "format_table",         # viền & tô màu cho bảng/hàng/cột/ô
+    "append_paragraph",     # add a paragraph at the end of the document
+    "insert_paragraph",     # insert a paragraph before/after a specific one
+    "append_to_paragraph",  # append text to the end of an existing paragraph
+    "replace_paragraph",    # replace a paragraph's entire content
+    "delete_paragraph",     # delete a paragraph
+    "replace_text",         # find & replace a string across the whole document
+    "format_paragraph",     # font/size/bold/italic/underline/color/align/indent/line-spacing…
+    "set_heading",          # turn a paragraph into a level-N heading
+    "set_list",             # set/unset a bullet or numbered list
+    "add_page",             # add a new page at the end
+    "insert_page",          # insert a new page after a specific one
+    "delete_page",          # delete a page
+    "create_table",         # create a new table
+    "add_table_row",        # add a row to an existing table
+    "delete_table_row",     # delete a row from a table
+    "add_table_column",     # add a column to an existing table
+    "delete_table_column",  # delete a column from a table
+    "set_table_cell",       # reset the content of an existing table cell
+    "merge_table_cells",    # merge a range of table cells
+    "split_table_cell",     # split a merged cell into multiple cells
+    "format_table",         # borders & shading for a table/row/column/cell
 )
 
 
-# ── Đọc cấu trúc ───────────────────────────────────────────────────────────
+# ── Read structure ────────────────────────────────────────────────────────
 
 @log_call
 def _has_page_break(para: Paragraph) -> bool:
@@ -75,20 +75,20 @@ def _has_page_break(para: Paragraph) -> bool:
 
 @log_call
 def _page_numbers(doc) -> list[int]:
-    """Số trang của từng đoạn (1-based), theo ngắt trang thủ công."""
+    """Page number for each paragraph (1-based), based on manual page breaks."""
     pages, page = [], 1
     for para in doc.paragraphs:
         if para.paragraph_format.page_break_before:
             page += 1
         pages.append(page)
         if _has_page_break(para):
-            page += 1          # đoạn sau nằm ở trang kế tiếp
+            page += 1          # the next paragraph lands on the following page
     return pages
 
 
 @log_call
 def outline(path: str, max_chars: int = 90) -> dict:
-    """Cấu trúc tài liệu để gửi lên server làm ngữ cảnh cho Claude."""
+    """The document's structure to send to the server as context for Claude."""
     doc = DocxDocument(path)
     pages = _page_numbers(doc)
     items = []
@@ -121,7 +121,7 @@ def outline(path: str, max_chars: int = 90) -> dict:
 
 @log_call
 def outline_text(path: str) -> str:
-    """Outline dạng văn bản gọn cho prompt."""
+    """A compact text-form outline for the prompt."""
     data = outline(path)
     lines = [f"Tài liệu có {len(data['paragraphs'])} đoạn, "
              f"{data['page_count']} trang, {data['table_count']} bảng."]
@@ -141,7 +141,7 @@ def outline_text(path: str) -> str:
     return "\n".join(lines)
 
 
-# ── Tiện ích thao tác trên XML ─────────────────────────────────────────────
+# ── XML manipulation helpers ─────────────────────────────────────────────────
 
 @log_call
 def _insert_after(para: Paragraph, text: str = "", style: str | None = None) -> Paragraph:
@@ -165,7 +165,7 @@ def _set_style(para: Paragraph, style: str):
 
 @log_call
 def _set_text(para: Paragraph, text: str):
-    """Thay nội dung đoạn, giữ định dạng của run đầu tiên."""
+    """Replace the paragraph's content, keeping the first run's formatting."""
     runs = para.runs
     if runs:
         runs[0].text = text
@@ -183,7 +183,8 @@ def _delete(para: Paragraph):
 @log_call
 def _add_lines(after: Paragraph | None, doc, text: str,
                style: str | None = None) -> Paragraph:
-    """Thêm text (có thể nhiều dòng) — nối tiếp sau `after`, hoặc cuối tài liệu."""
+    """Add text (possibly multi-line) — continuing after `after`, or at the
+    end of the document."""
     last = after
     for line in text.split("\n"):
         if last is None:
@@ -195,7 +196,7 @@ def _add_lines(after: Paragraph | None, doc, text: str,
     return last
 
 
-# ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
+# ── Execute edit commands ────────────────────────────────────────────────────
 
 @log_call
 def _need(edit: dict, key: str):
@@ -250,11 +251,12 @@ def _table_at(doc, edit: dict):
 
 @log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
-    """Áp lần lượt các lệnh sửa lên file, lưu một lần. Trả về mô tả từng lệnh.
+    """Apply the edit commands to the file in order, save once. Returns a
+    description of each command.
 
-    Mọi vị trí (index/page) đều tính theo tài liệu GỐC: các đoạn được nắm giữ
-    bằng tham chiếu XML trước khi sửa, nên chèn/xóa không làm lệch vị trí của
-    những lệnh sau.
+    Every position (index/page) is computed against the ORIGINAL document:
+    paragraphs are held by XML reference before editing, so insert/delete
+    doesn't shift the position of later commands.
     """
     if not edits:
         return []
@@ -359,9 +361,10 @@ def _run_op(doc, paras: list[Paragraph], pages: list[int],
         after_page = int(edit.get("after_page") or (max(pages) if pages else 1))
         last = _page_paras(paras, pages, after_page)[-1]
         if _has_page_break(last):
-            # Trang này đã có ngắt trang ở cuối → dùng luôn ngắt đó, rồi đặt
-            # một ngắt mới SAU nội dung để đẩy trang cũ xuống. Nếu chèn thêm
-            # ngắt trước nội dung sẽ sinh ra một trang trắng.
+            # This page already ends with a page break → reuse that break,
+            # then place a new break AFTER the content to push the old page
+            # down. Inserting a break before the content would produce a
+            # blank page.
             end = _add_lines(last, doc, text, style)
             brk = _insert_after(end)
             brk.add_run().add_break(WD_BREAK.PAGE)
@@ -406,13 +409,14 @@ def _run_op(doc, paras: list[Paragraph], pages: list[int],
         table = _table_at(doc, edit)
         return _format_table(table, edit)
 
-    # delete_page — op cuối cùng còn lại trong OPS.
+    # delete_page — the last remaining op in OPS.
     page = int(_need(edit, "page"))
     victims = _page_paras(paras, pages, page)
     total = max(pages) if pages else 1
     for para in victims:
         _delete(para)
-    # Xóa trang cuối → dọn nốt ngắt trang thừa ở cuối trang trước, tránh trang trắng.
+    # Deleting the last page → also clean up the now-orphaned page break at
+    # the end of the previous page, to avoid a blank page.
     if page == total and page > 1:
         prev = _page_paras(paras, pages, page - 1)[-1]
         if _has_page_break(prev):
@@ -427,8 +431,9 @@ def _run_op(doc, paras: list[Paragraph], pages: list[int],
 
 @log_call
 def _is_simple_run(run: Run) -> bool:
-    """True nếu run chỉ chứa đúng một <w:t> (không tab/break/nhiều đoạn chữ)
-    — an toàn để tách đôi. Run do add_run() tạo ra luôn ở dạng này."""
+    """True if the run contains exactly one <w:t> (no tab/break/multiple text
+    runs) — safe to split in two. A run created by add_run() is always in
+    this form."""
     run_elem = run._r
     children = [child for child in run_elem if child.tag != qn("w:rPr")]
     return len(children) == 1 and children[0].tag == qn("w:t")
@@ -436,8 +441,8 @@ def _is_simple_run(run: Run) -> bool:
 
 @log_call
 def _split_run(run: Run, offset: int) -> tuple[Run, Run]:
-    """Tách run thành 2 run tại vị trí `offset` trong run.text, run mới giữ
-    nguyên định dạng (rPr) của run gốc. Chỉ dùng khi `_is_simple_run(run)`."""
+    """Split a run into 2 runs at `offset` within run.text, the new run keeps
+    the original run's formatting (rPr). Only use when `_is_simple_run(run)`."""
     text = run.text
     run_elem = run._r
     rPr = run_elem.find(qn("w:rPr"))
@@ -455,10 +460,11 @@ def _split_run(run: Run, offset: int) -> tuple[Run, Run]:
 
 @log_call
 def _format_run_range(para: Paragraph, start: int, end: int) -> list[Run]:
-    """Tách các run bị cắt ngang bởi [start, end) rồi trả về đúng những run
-    nằm gọn trong khoảng đó — để định dạng chỉ áp lên phần chữ đã chọn, không
-    lan ra cả đoạn. Run "phức tạp" (chứa tab/ngắt dòng) bị cắt ngang thì được
-    bỏ qua thay vì tách để tránh hỏng nội dung."""
+    """Split any runs crossed by [start, end) then return exactly the runs
+    that land fully within that range — so formatting only applies to the
+    selected text, not the whole paragraph. A "complex" run (containing a
+    tab/line-break) that gets crossed is skipped instead of split, to avoid
+    corrupting its content."""
     runs = list(para.runs)
     changed = True
     while changed:
@@ -493,8 +499,9 @@ def _format_run_range(para: Paragraph, start: int, end: int) -> list[Run]:
 
 @log_call
 def _set_run_font(run: Run, name: str):
-    """Đổi font, đặt cả ascii/hAnsi (qua API) lẫn eastAsia/cs (qua XML trực
-    tiếp) để Word không tự thay font cho một số dải ký tự."""
+    """Change the font, setting both ascii/hAnsi (via the API) and
+    eastAsia/cs (via raw XML) so Word doesn't silently swap the font for
+    some character ranges."""
     run.font.name = name
     rPr = run._element.get_or_add_rPr()
     rFonts = rPr.find(qn("w:rFonts"))
@@ -623,7 +630,8 @@ def _set_list(para: Paragraph, edit: dict) -> str:
 
 @log_call
 def _replace_text(doc, find: str, repl: str) -> int:
-    """Thay chuỗi trong mọi đoạn (kể cả trong bảng). Trả về số đoạn bị đổi."""
+    """Replace a string in every paragraph (including inside tables). Returns
+    the number of paragraphs changed."""
     count = 0
 
     def _in_paragraphs(paragraphs):
@@ -641,7 +649,7 @@ def _replace_text(doc, find: str, repl: str) -> int:
     return count
 
 
-# ── Bảng biểu ────────────────────────────────────────────────────────────────
+# ── Tables ───────────────────────────────────────────────────────────────────
 
 @log_call
 def _create_table(doc, paras: list[Paragraph], edit: dict) -> str:
@@ -649,14 +657,14 @@ def _create_table(doc, paras: list[Paragraph], edit: dict) -> str:
     cols = int(_need(edit, "cols"))
     if rows < 1 or cols < 1:
         raise WordOpError("Số hàng/cột của bảng phải lớn hơn 0.")
-    data = edit.get("data")  # list[list[str]] tuỳ chọn — điền sẵn nội dung
+    data = edit.get("data")  # optional list[list[str]] — pre-fills content
 
     table = doc.add_table(rows=rows, cols=cols)
     try:
         table.style = "Table Grid"
     except KeyError:
         logger.debug("'Table Grid' style not in document — table created without default borders.")
-        # style chưa có sẵn trong tài liệu — vẫn tạo bảng, chỉ thiếu viền mặc định
+        # style isn't available in the document — table still gets created, just without default borders
 
     if data:
         for row_idx, row_vals in enumerate(data):
@@ -771,7 +779,7 @@ def _add_table_column(table, edit: dict) -> str:
         cells = tr.findall(qn("w:tc"))
         template = cells[0] if cells else None
         new_tc = copy.deepcopy(template) if template is not None else OxmlElement("w:tc")
-        # Xóa nội dung cũ, giữ lại định dạng ô (tcPr) sao từ ô mẫu cùng hàng.
+        # Clear the old content, keep the cell formatting (tcPr) copied from the template cell in the same row.
         for para_elem in new_tc.findall(qn("w:p")):
             new_tc.remove(para_elem)
         new_p = OxmlElement("w:p")
@@ -805,8 +813,9 @@ def _delete_table_column(table, edit: dict) -> str:
     if col_index < len(grid_cols):
         grid.remove(grid_cols[col_index])
 
-    # Đơn giản hoá: giả định mỗi hàng có đúng 1 ô cho mỗi cột lưới (không có
-    # ô đã gộp ngang). Bảng có ô gộp phức tạp có thể cần chỉnh tay sau khi xoá.
+    # Simplification: assumes each row has exactly 1 cell per grid column (no
+    # horizontally merged cells). A table with complex merges may need manual
+    # cleanup after deletion.
     for row in table.rows:
         cells = row._tr.findall(qn("w:tc"))
         if col_index < len(cells):
@@ -817,9 +826,10 @@ def _delete_table_column(table, edit: dict) -> str:
 
 @log_call
 def _set_table_cell(table, edit: dict) -> str:
-    """Đặt lại toàn bộ nội dung chữ của 1 ô ĐÃ CÓ SẴN trong bảng — không thêm/
-    xóa hàng hay cột. Giữ định dạng của run đầu tiên trong ô (giống cách
-    replace_paragraph giữ định dạng khi thay nội dung đoạn)."""
+    """Reset the entire text content of an EXISTING table cell — doesn't add/
+    delete a row or column. Keeps the first run's formatting in the cell
+    (same as how replace_paragraph keeps formatting when replacing a
+    paragraph's content)."""
     row_idx = int(_need(edit, "row"))
     col_idx = int(_need(edit, "col"))
     text = _need(edit, "text")
@@ -849,7 +859,7 @@ def _merge_table_cells(table, edit: dict) -> str:
             raise WordOpError(f"{name} = {val} vượt quá kích thước bảng ({n_rows}×{n_cols}).")
     try:
         table.cell(r1, c1).merge(table.cell(r2, c2))
-    except Exception as exc:  # noqa: BLE001 — lỗi cấu trúc bảng bất thường
+    except Exception as exc:  # noqa: BLE001 — unusual table structure error
         raise WordOpError(f"Không gộp được ô: {exc}")
     return f"gộp ô ({r1},{c1})–({r2},{c2}) trong bảng"
 
@@ -879,9 +889,10 @@ def _set_grid_span(tc, span: int):
 
 @log_call
 def _split_table_cell(table, edit: dict) -> str:
-    """Tách 1 ô đã gộp (gridSpan > 1) thành nhiều ô nhỏ hơn, chia đều số cột
-    lưới đang chiếm. Ô chưa từng gộp (gridSpan == 1) không tách được — muốn
-    vậy phải thêm cột mới cho cả bảng trước."""
+    """Split a merged cell (gridSpan > 1) into several smaller cells, dividing
+    the occupied grid columns evenly. A never-merged cell (gridSpan == 1)
+    can't be split — that requires adding a new column to the whole table
+    first."""
     row_idx = int(_need(edit, "row"))
     col_idx = int(_need(edit, "col"))
     parts = int(edit.get("cols") or 2)
@@ -992,9 +1003,10 @@ def _cell_set_valign(cell, valign: str) -> None:
 
 @log_call
 def _apply_cell_format(cell, edit: dict) -> None:
-    """Áp shading/viền/font/căn lề lên 1 ô — dùng chung cho mọi scope của
-    format_table. `edit["border"]` là cờ đã được _format_table quyết định
-    trước (scope=table dùng viền cấp bảng riêng, không lặp lại ở đây)."""
+    """Apply shading/border/font/alignment to a cell — shared by every scope
+    of format_table. `edit["border"]` is a flag already decided upstream by
+    _format_table (scope=table uses its own table-level border, not repeated
+    here)."""
     if edit.get("shading_color"):
         _cell_set_shading(cell, edit["shading_color"])
     if edit.get("border"):
@@ -1059,7 +1071,7 @@ def _format_table(table, edit: dict) -> str:
         if border:
             _table_set_borders(table, edit.get("border_color") or "000000",
                                int(edit.get("border_size") or 4))
-            cell_border = False  # viền cấp bảng đã xử lý — khỏi lặp lại theo từng ô
+            cell_border = False  # table-level border already handled — don't repeat it per cell
         where = "cả bảng"
     elif scope == "row":
         row_idx = int(_need(edit, "row"))

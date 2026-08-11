@@ -11,7 +11,7 @@ logger = get_logger(__name__)
 
 @log_call
 def ppt_to_pdf(path: str, out_path: str | None = None) -> str:
-    """Xuất .pptx ra PDF. Windows: PowerPoint COM. macOS: Microsoft Office → LibreOffice. Linux: LibreOffice."""
+    """Export .pptx to PDF. Windows: PowerPoint COM. macOS: Microsoft Office → LibreOffice. Linux: LibreOffice."""
     abs_path = os.path.abspath(path)
     if out_path is None:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:

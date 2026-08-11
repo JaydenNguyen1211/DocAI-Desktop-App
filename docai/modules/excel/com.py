@@ -1,12 +1,12 @@
-"""Xuất ảnh PNG của biểu đồ Excel bằng COM (Excel.Application) để ghép vào bản
-xem trước tự vẽ — chỉ hoạt động trên Windows. Trên macOS/Linux, `export_all_charts`
-trả về {} và biểu đồ hiện dưới dạng placeholder; `export_workbook_pdf` dùng
-LibreOffice thay thế.
+"""Export PNG images of Excel charts via COM (Excel.Application) to compose
+into the self-drawn preview — only works on Windows. On macOS/Linux,
+`export_all_charts` returns {} and charts show as a placeholder;
+`export_workbook_pdf` uses LibreOffice instead.
 
-Chỉ dùng đúng 1 API COM hẹp — `Chart.Export()` — KHÔNG đụng đến vị trí/kích
-thước cửa sổ Application. Mở file READ-ONLY và luôn `Close(SaveChanges=False)`
-— không để Excel tự tính lại/"sửa" rồi ghi đè XML mà code openpyxl không
-lường trước.
+Uses exactly 1 narrow COM API — `Chart.Export()` — does NOT touch the
+Application window's position/size. Opens the file READ-ONLY and always
+`Close(SaveChanges=False)` — so Excel never recalculates/"fixes" and
+overwrites XML in ways the openpyxl code doesn't anticipate.
 """
 import os
 import sys
@@ -18,15 +18,15 @@ logger = get_logger(__name__)
 
 
 class ExcelComError(Exception):
-    """Không xuất được PDF — thông báo tiếng Việt cho người dùng."""
+    """Couldn't export the PDF — message shown to the user in Vietnamese."""
 
 
 @log_call
 def export_workbook_pdf(path: str, out_path: str) -> str:
-    """Xuất toàn bộ workbook ra PDF.
+    """Export the entire workbook to PDF.
 
-    Windows: dùng Excel COM (`ExportAsFixedFormat`).
-    macOS/Linux: dùng LibreOffice CLI.
+    Windows: uses Excel COM (`ExportAsFixedFormat`).
+    macOS/Linux: uses the LibreOffice CLI.
     """
     if sys.platform == "darwin":
         from ..common._msoffice_mac import is_available, excel_to_pdf as ms_excel_to_pdf, MsOfficeMacError
@@ -87,10 +87,10 @@ def export_workbook_pdf(path: str, out_path: str) -> str:
 
 @log_call
 def export_all_charts(path: str, tmp_dir: str) -> dict:
-    """Trả về {(tên_sheet, thứ_tự_chart_0_based): đường_dẫn_png}.
+    """Returns {(sheet_name, 0_based_chart_index): png_path}.
 
-    Chỉ hoạt động trên Windows (Excel COM). Trên macOS/Linux trả về {} để
-    nơi gọi tự vẽ placeholder.
+    Only works on Windows (Excel COM). On macOS/Linux returns {} so the
+    caller draws its own placeholder.
     """
     if sys.platform != "win32":
         return {}

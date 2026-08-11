@@ -1,13 +1,15 @@
-"""Tham số tính lương + BHXH/BHYT/BHTN + thuế TNCN — TẤT CẢ đặt ở đây, KHÔNG
-rải rác trong payroll.py, để người dùng tự rà soát/sửa khi quy định đổi.
+"""Parameters for computing payroll + social/health/unemployment insurance +
+personal income tax — ALL kept here, NOT scattered across payroll.py, so
+users can review/edit them themselves when regulations change.
 
-⚠️ QUAN TRỌNG: các mức dưới đây là mức phổ biến áp dụng tại thời điểm viết
-code (đầu năm 2026), lấy theo quy định đang có hiệu lực gần nhất mà tôi biết
-được — GIỐNG NHƯ CHÍNH TÀI LIỆU KẾ HOẠCH ĐÃ LƯU Ý: "quy định thuế/bảo hiểm
-thay đổi liên tục". Trước khi dùng cho việc tính lương thật, người dùng/kế
-toán PHẢI tự đối chiếu lại các mức này với quy định hiện hành (Nghị định/
-Nghị quyết/Thông tư mới nhất) — DocAI chỉ hỗ trợ tính toán theo tham số đã
-khai báo, không tự cập nhật hay tự chịu trách nhiệm về tính đúng của mức.
+⚠️ IMPORTANT: the rates below are the common values in effect at the time
+this code was written (early 2026), based on the most recent regulations I'm
+aware of — JUST AS THE PLANNING DOCS THEMSELVES NOTE: "tax/insurance
+regulations change constantly". Before using this for real payroll runs,
+the user/accountant MUST cross-check these rates against current regulations
+(the latest Decree/Resolution/Circular) — DocAI only assists with
+computation based on the declared parameters, it does not auto-update or
+take responsibility for the rates' accuracy.
 """
 from dataclasses import dataclass, field
 
@@ -18,32 +20,36 @@ logger = get_logger(__name__)
 
 @dataclass
 class InsuranceRates:
-    """Tỷ lệ trích BHXH/BHYT/BHTN — áp trên "tiền lương tháng đóng BHXH".
+    """Social/health/unemployment insurance contribution rates — applied to
+    the "monthly salary used for social insurance contribution".
 
-    Nguồn tham chiếu tại thời điểm viết code: Luật BHXH 2024 (hiệu lực từ
-    01/07/2025) + Luật Việc làm hiện hành cho BHTN — tỷ lệ % không đổi so với
-    giai đoạn trước, chỉ đổi cách tính mức đóng tối đa với BHXH tự nguyện
-    (không ảnh hưởng công thức MVP này).
+    Reference source at the time this code was written: Social Insurance Law
+    2024 (effective 07/01/2025) + the current Employment Law for
+    unemployment insurance — the % rates are unchanged from the previous
+    period, only the maximum contribution calculation for voluntary social
+    insurance changed (doesn't affect this MVP's formula).
     """
-    # Người lao động (NLĐ) — trừ thẳng vào lương.
+    # Employee side (NLĐ) — withheld directly from salary.
     bhxh_nld: float = 0.08
     bhyt_nld: float = 0.015
     bhtn_nld: float = 0.01
-    # Doanh nghiệp (DN) — DN tự chi, không trừ lương NLĐ, chỉ để báo cáo chi phí.
+    # Employer side (DN) — paid by the employer, not withheld from the
+    # employee's salary, only reported as cost.
     bhxh_dn: float = 0.175
     bhyt_dn: float = 0.03
     bhtn_dn: float = 0.01
-    kpcd_dn: float = 0.02  # Kinh phí công đoàn — tính trên quỹ lương đóng BHXH.
+    kpcd_dn: float = 0.02  # Trade union fee — computed on the social-insurance salary fund.
 
 
-# Mức lương cơ sở — trần đóng BHXH/BHYT = 20 × mức này.
-# Nghị định 73/2024/NĐ-CP, hiệu lực 01/07/2024: 2.340.000đ.
+# Base salary — the social/health insurance contribution ceiling = 20 × this rate.
+# Decree 73/2024/NĐ-CP, effective 07/01/2024: 2,340,000 VND.
 LUONG_CO_SO = 2_340_000
-BHXH_BHYT_TRAN = 20 * LUONG_CO_SO  # 46.800.000đ
+BHXH_BHYT_TRAN = 20 * LUONG_CO_SO  # 46,800,000 VND
 
 
-# Mức lương tối thiểu vùng — trần đóng BHTN = 20 × mức vùng tương ứng.
-# Nghị định 74/2024/NĐ-CP, hiệu lực 01/07/2024 (đơn vị: đồng/tháng).
+# Regional minimum wage — the unemployment insurance contribution ceiling =
+# 20 × the corresponding regional rate.
+# Decree 74/2024/NĐ-CP, effective 07/01/2024 (unit: VND/month).
 LUONG_TOI_THIEU_VUNG = {
     "I": 4_960_000,
     "II": 4_410_000,
@@ -60,10 +66,10 @@ _VUNG_ALIAS = {
 
 @log_call
 def normalize_region(raw) -> str:
-    """Chuẩn hoá ô "Vùng" trong bảng chấm công về "I"/"II"/"III"/"IV".
+    """Normalize the "Region" cell in the timesheet to "I"/"II"/"III"/"IV".
 
-    Không nhận diện được → mặc định Vùng I (mức trần cao nhất, an toàn hơn
-    là tính thiếu tiền đóng BHTN cho NLĐ)."""
+    Unrecognized → defaults to Region I (the highest ceiling, safer than
+    under-computing the employee's unemployment insurance contribution)."""
     key = str(raw or "").strip().upper()
     return _VUNG_ALIAS.get(key, "I")
 
@@ -73,20 +79,20 @@ def bhtn_tran(region: str) -> int:
     return 20 * LUONG_TOI_THIEU_VUNG[normalize_region(region)]
 
 
-# Giảm trừ gia cảnh thuế TNCN — Nghị quyết 954/2020/UBTVQH14 (mức đang áp
-# dụng tại thời điểm viết code; có thể đã có nghị quyết mới điều chỉnh mức
-# này — CẦN TỰ KIỂM TRA LẠI).
+# Personal income tax family deduction — Resolution 954/2020/UBTVQH14 (the
+# rate in effect at the time this code was written; a newer resolution may
+# have adjusted this — NEEDS TO BE VERIFIED).
 GIAM_TRU_BAN_THAN = 11_000_000
 GIAM_TRU_NGUOI_PHU_THUOC = 4_400_000
 
 
 @dataclass
 class TaxBracket:
-    upto: float  # ngưỡng thu nhập tính thuế/tháng (đồng); inf = không giới hạn trên
+    upto: float  # taxable income threshold/month (VND); inf = no upper limit
     rate: float
 
 
-# Biểu thuế TNCN lũy tiến từng phần — 7 bậc, theo Luật Thuế TNCN hiện hành.
+# Progressive personal income tax brackets — 7 tiers, per the current PIT Law.
 TAX_BRACKETS: list[TaxBracket] = [
     TaxBracket(5_000_000, 0.05),
     TaxBracket(10_000_000, 0.10),
@@ -100,11 +106,12 @@ TAX_BRACKETS: list[TaxBracket] = [
 
 @dataclass
 class PayrollRates:
-    """Gộp TOÀN BỘ tham số ảnh hưởng kết quả tính lương vào 1 object — để có
-    thể ghi đè nguyên khối bằng mức lấy từ server (`GET /rates`, xem
-    `payroll._get_active_rates()`), thay vì chỉ ghi đè riêng % bảo hiểm.
-    `version` là nhãn hiển thị cho người dùng biết đang dùng mức nào
-    ("local-default" = mặc định cứng trong app, chưa từng đồng bộ được)."""
+    """Bundles EVERY parameter that affects the payroll result into 1 object
+    — so it can be overridden wholesale by rates fetched from the server
+    (`GET /rates`, see `payroll._get_active_rates()`), instead of only
+    overriding the insurance %. `version` is a label shown to the user
+    indicating which rates are in use ("local-default" = the app's hardcoded
+    default, never successfully synced)."""
     insurance: InsuranceRates = field(default_factory=InsuranceRates)
     luong_co_so: int = LUONG_CO_SO
     luong_toi_thieu_vung: dict[str, int] = field(
@@ -121,7 +128,7 @@ class PayrollRates:
     @log_call
     def bhtn_tran(self, region: str) -> int:
         vung = self.luong_toi_thieu_vung.get(normalize_region(region))
-        if vung is None:  # dữ liệu server thiếu vùng lạ → an toàn dùng Vùng I
+        if vung is None:  # server data missing an unfamiliar region → safely default to Region I
             vung = self.luong_toi_thieu_vung.get("I", LUONG_TOI_THIEU_VUNG["I"])
         return 20 * vung
 

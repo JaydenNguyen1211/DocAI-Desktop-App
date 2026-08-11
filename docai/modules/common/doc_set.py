@@ -1,19 +1,20 @@
-"""Function tổng hợp cho chế độ Thư mục — nhận một danh sách file (Word/Excel/
-PowerPoint/PDF/Ảnh) cùng yêu cầu của người dùng, trả về nội dung phân tích
-(luôn có) và danh sách file output (có thể rỗng), theo đúng luồng thiết kế ở
-`D:\\Tools\\DocAI\\Plan\\V4\\DocAI-dafiile\\screens`.
+"""The aggregate function for Folder mode — takes a list of files (Word/
+Excel/PowerPoint/PDF/Image) plus the user's request, returns analysis
+content (always present) and a list of output files (may be empty), per the
+design flow at `D:\\Tools\\DocAI\\Plan\\V4\\DocAI-dafiile\\screens`.
 
-6 tác vụ được nhận diện cục bộ (không tốn lượt gọi AI để phân loại):
-    so sánh · đối chiếu · gộp · trích xuất & gộp nguồn hỗn hợp · tìm kiếm ·
-    rà soát hồ sơ thiếu
-Yêu cầu không khớp tác vụ nào ở trên được chuyển nguyên văn cho
-`api_client.chat()` — đây là điểm "escalate" duy nhất hiện có (server tự
-chọn model phù hợp; client không có tham số chọn model).
+6 tasks are recognized locally (no AI call spent on classification):
+    compare · reconcile · merge · extract & merge mixed sources · search ·
+    review for missing documents
+Requests that don't match any of the above are passed verbatim to
+`api_client.chat()` — this is the only "escalate" point that currently
+exists (the server picks the right model itself; the client has no model
+selection parameter).
 
-File output được ghi vào thư mục staging tạm (`_staging_dir()`), CHƯA phải vị
-trí lưu cuối cùng — theo đúng hành vi "chỉ tạo file thật khi bấm Lưu file" ở
-thiết kế. Việc mở hộp thoại chọn nơi lưu là bước UI riêng (xem
-`app/ui/save_output.py`).
+Output files are written to the temp staging folder (`_staging_dir()`), NOT
+the final save location yet — per the "only create the real file when Save
+file is clicked" behavior in the design. Opening the save-location dialog is
+a separate UI step (see `app/ui/save_output.py`).
 """
 import copy
 import os
@@ -56,7 +57,7 @@ _MAX_CHARS_PER_FILE = 6000
 
 
 class DocSetError(api_client.ApiError):
-    """Không xử lý được bộ file — thông báo tiếng Việt cho người dùng."""
+    """Couldn't process the file set — message shown to the user in Vietnamese."""
 
     @log_call
     def __init__(self, message: str):
@@ -71,7 +72,7 @@ class DocSetResult:
     quota: dict = field(default_factory=dict)
 
 
-# ── Phân loại tác vụ (cục bộ, không gọi AI) ─────────────────────────────────
+# ── Task classification (local, no AI call) ─────────────────────────────────
 
 _RE_MERGE = re.compile(r"\bgộp\b|\bghép\b|hợp nhất thành|\bmerge\b", re.IGNORECASE)
 _RE_CHECKLIST = re.compile(
@@ -105,20 +106,24 @@ def _classify(user_request: str, paths: list[str]) -> str:
     return TASK_GENERAL
 
 
-# ── Xác định file input từ ngữ cảnh chat (cục bộ, không gọi AI) ─────────────
+# ── Determine input files from the chat context (local, no AI call) ────────
 #
-# Chat Panel là trung tâm — luôn mở độc lập, không cần thao tác gì ở sidebar
-# trước. Sidebar (cây thư mục) chỉ là NGUỒN THAM CHIẾU để nhận diện tên file
-# được nhắc tới trong câu chat, không có khái niệm "tick chọn" nữa.
+# The Chat Panel is the center — always opens independently, no sidebar
+# action needed first. The sidebar (folder tree) is only a REFERENCE SOURCE
+# to recognize file names mentioned in the chat message, there's no more
+# "tick to select" concept.
 #
-# 3 nguồn ứng viên (đều chỉ là "CÓ THỂ là input", không tự động dùng):
-#   - `attached`: file đính kèm qua chat trong cuộc trò chuyện này
-#   - `recent_outputs`: file output từ lần xử lý đa file trước đó CÙNG hội thoại
-#   - `folder_files`: toàn bộ file trong thư mục đang mở (chỉ để nhận diện tên
-#     nhắc tới trong câu chat, hoặc dùng khi user rõ ràng muốn "cả thư mục")
-# File nào THỰC SỰ là input do người dùng nói rõ (nhắc tên, hoặc ý "cả thư
-# mục") quyết định — không tự ý gộp hết các nguồn lại. Nếu không đủ rõ, trả
-# về `needs_clarification=True` kèm gợi ý để hỏi lại thay vì đoán.
+# 3 candidate sources (all only "COULD BE input", never auto-used):
+#   - `attached`: files attached via chat in this conversation
+#   - `recent_outputs`: output files from a previous multi-file run in the
+#     SAME conversation
+#   - `folder_files`: every file in the currently open folder (only used to
+#     recognize names mentioned in the chat, or when the user clearly means
+#     "the whole folder")
+# Which files are ACTUALLY the input is decided by what the user explicitly
+# said (named files, or "the whole folder" intent) — sources are never
+# merged together automatically. If it's not clear enough, return
+# `needs_clarification=True` with suggestions to ask back instead of guessing.
 
 _WHOLE_FOLDER_RE = re.compile(
     r"toàn bộ thư mục|tất cả file|cả thư mục|mọi file|hết các file|toàn bộ file",
@@ -135,15 +140,15 @@ class ResolveResult:
     paths: list[str]
     needs_clarification: bool = False
     message: str = ""
-    suggestions: list[str] = field(default_factory=list)  # tên file gợi ý (chip)
+    suggestions: list[str] = field(default_factory=list)  # suggested file names (chips)
 
 
 @log_call
 def _name_mentioned(text_words: set[str], path: str, threshold: float = 0.6) -> bool:
-    """So khớp theo tỉ lệ trùng TỪ (word-overlap), không phải substring cứng —
-    tên file dạng "HopDong_LoHangT6.docx" (tách được "hop dong lo hang t6")
-    cần khớp được với câu tự nhiên "hợp đồng ... lô hàng T6", vốn không chứa
-    nguyên văn tên file."""
+    """Match by WORD-overlap ratio, not a hard substring — a file name like
+    "HopDong_LoHangT6.docx" (splits into "hop dong lo hang t6") needs to
+    match the natural sentence "hợp đồng ... lô hàng T6", which doesn't
+    literally contain the file name."""
     stem_words = {w for w in _norm(os.path.splitext(os.path.basename(path))[0]).split() if len(w) >= 2}
     if not stem_words:
         return False
@@ -200,7 +205,7 @@ def resolve_input_files(user_request: str, attached: list[str], recent_outputs: 
     return ResolveResult(paths=resolved)
 
 
-# ── Trích xuất nội dung mọi loại file ────────────────────────────────────────
+# ── Extract content from every file type ────────────────────────────────────
 
 @log_call
 def _extract_one(path: str) -> AttachedFile:
@@ -224,10 +229,11 @@ def _extract_one(path: str) -> AttachedFile:
 
 @log_call
 def _extract_all(paths: list[str]) -> tuple[list[AttachedFile], list[str]]:
-    """Đọc nội dung từng file — 1 file lỗi (định dạng lạ, hỏng…) KHÔNG làm hỏng
-    cả lô, đặc biệt quan trọng khi input là "cả thư mục" (VD file .xml hóa đơn
-    điện tử lẫn trong thư mục nhưng chưa có trích xuất riêng). Trả về
-    (files đọc được, danh sách ghi chú file bị bỏ qua)."""
+    """Read the content of each file — 1 failed file (odd format, corrupted…)
+    does NOT break the whole batch, especially important when the input is
+    "the whole folder" (e.g. an e-invoice .xml file mixed into the folder
+    with no dedicated extractor yet). Returns (readable files, list of notes
+    about skipped files)."""
     files: list[AttachedFile] = []
     skipped: list[str] = []
     for path in paths:
@@ -242,7 +248,8 @@ def _extract_all(paths: list[str]) -> tuple[list[AttachedFile], list[str]]:
 
 @log_call
 def _ocr_pdf(path: str) -> AttachedFile:
-    """PDF quét ảnh (không có lớp chữ) — nhờ AI đọc qua Vision. Tốn 1 tác vụ AI."""
+    """A scanned-image PDF (no text layer) — have the AI read it via Vision.
+    Costs 1 AI action."""
     import base64
     data = Path(path).read_bytes()
     attachment = {
@@ -258,7 +265,7 @@ def _ocr_pdf(path: str) -> AttachedFile:
 
 @log_call
 def _ocr_image(path: str) -> AttachedFile:
-    """Tốn 1 tác vụ AI / ảnh — không có cách nào đọc chữ trong ảnh cục bộ."""
+    """Costs 1 AI action / image — there's no way to read text in an image locally."""
     data_b64, media_type = image_ops.b64_for_vision(path)
     attachment = {"kind": "image", "media_type": media_type, "data_b64": data_b64}
     result = api_client.extract_text(attachment)
@@ -293,9 +300,9 @@ def _stamp() -> str:
 
 @log_call
 def _quota_of(result: dict) -> dict:
-    """`plan`/`quota_remaining` từ 1 response server — để UI cập nhật nhãn quota
-    giống hệt luồng chat/edit thường (server trả trạng thái quota hiện tại,
-    không phải mức tiêu thụ riêng của lượt gọi này)."""
+    """`plan`/`quota_remaining` from a server response — lets the UI update
+    the quota label just like the regular chat/edit flow (the server returns
+    the current quota state, not this call's own consumption)."""
     quota = {}
     if result.get("quota_remaining") is not None:
         quota["quota_remaining"] = result["quota_remaining"]
@@ -304,7 +311,7 @@ def _quota_of(result: dict) -> dict:
     return quota
 
 
-# ── Tìm kiếm xuyên file (cục bộ, không gọi AI) ──────────────────────────────
+# ── Cross-file search (local, no AI call) ────────────────────────────────────
 
 _QUOTE_RE = re.compile(r'["“”\'‘’](.+?)["“”\'‘’]')
 _SEARCH_LEAD_RE = re.compile(
@@ -375,7 +382,8 @@ def _handle_search(files: list[AttachedFile], user_request: str) -> DocSetResult
     return DocSetResult(task=TASK_SEARCH, analysis="\n".join(lines))
 
 
-# ── Rà soát hồ sơ thiếu (chủ yếu cục bộ, 1 lượt AI nếu cần tự suy checklist) ─
+# ── Review for missing documents (mostly local, 1 AI call if the checklist
+#    needs to be inferred) ────────────────────────────────────────────────
 
 _STOPWORDS = {"giay", "to", "ho", "so", "va", "cac", "mot", "cho", "cua", "theo", "cac"}
 
@@ -385,10 +393,10 @@ _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 @log_call
 def _norm(text: str) -> str:
-    """Chuẩn hóa để so khớp: tách camelCase (VD "HopDong" → "Hop Dong" — tên
-    file thường ghép kiểu này, không có dấu cách/gạch dưới giữa các từ), bỏ
-    dấu tiếng Việt, hạ chữ thường, gộp mọi ký tự không phải chữ/số thành 1
-    khoảng trắng."""
+    """Normalize for matching: split camelCase (e.g. "HopDong" → "Hop Dong" —
+    file names are often concatenated this way, no space/underscore between
+    words), strip Vietnamese diacritics, lowercase, collapse every
+    non-alphanumeric character into a single space."""
     text = _CAMEL_RE.sub(" ", text)
     text = unicodedata.normalize("NFD", text)
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
@@ -458,7 +466,7 @@ def _handle_checklist(files: list[AttachedFile], user_request: str,
     return DocSetResult(task=TASK_CHECKLIST, analysis=analysis)
 
 
-# ── So sánh / đối chiếu (AI phân tích, chỉ trả text — không sinh file) ──────
+# ── Compare / reconcile (AI analysis, text only — no file generated) ───────
 
 @log_call
 def _handle_compare(files: list[AttachedFile], user_request: str, task: str) -> DocSetResult:
@@ -481,15 +489,15 @@ def _handle_compare(files: list[AttachedFile], user_request: str, task: str) -> 
     return DocSetResult(task=task, analysis=text, quota=_quota_of(result))
 
 
-# ── Trích xuất & gộp nguồn hỗn hợp → 1 bảng Excel ───────────────────────────
+# ── Extract & merge mixed sources → 1 Excel table ───────────────────────────
 
 _SHEET_BLOCK_RE = re.compile(r'(---\s*Sheet:.*)', re.DOTALL | re.IGNORECASE)
 
 
 @log_call
 def _split_sheet_block(text: str) -> tuple[str, str]:
-    """Trả về (phần_phân_tích_trước_bảng, khối_bảng_CSV) — khối bảng rỗng nếu
-    AI không trả đúng định dạng "--- Sheet: X ---"."""
+    """Returns (analysis_before_the_table, csv_table_block) — the table block
+    is empty if the AI doesn't return the "--- Sheet: X ---" format correctly."""
     match = _SHEET_BLOCK_RE.search(text)
     if not match:
         return text.strip(), ""
@@ -529,7 +537,7 @@ def _handle_extract_merge(user_request: str, files: list[AttachedFile]) -> DocSe
                         quota=_quota_of(result))
 
 
-# ── Gộp file cùng định dạng (cục bộ, không gọi AI) ──────────────────────────
+# ── Merge same-format files (local, no AI call) ──────────────────────────────
 
 @log_call
 def _merge_word(paths: list[str], out_path: str) -> str:
@@ -598,8 +606,9 @@ _MERGE_EXT = {"word": ".docx", "excel": ".xlsx", "pdf": ".pdf"}
 def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
     families = {_FAMILY_BY_EXT.get(os.path.splitext(p)[1].lower()) for p in paths}
     if len(families) != 1 or None in families:
-        # "gộp" với nguồn hỗn hợp không định dạng chung -> không ghép file gốc
-        # được, chuyển hướng sang hợp nhất dữ liệu thành 1 bảng.
+        # "merge" with mixed sources that share no common format -> the
+        # original files can't be concatenated, redirect to merging the
+        # data into a single table instead.
         files, skipped = _extract_all(paths)
         if not files:
             raise DocSetError(S.NO_READABLE_CONTENT)
@@ -620,7 +629,7 @@ def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
     out_path = os.path.join(_staging_dir(), f"Gop_{_stamp()}{_MERGE_EXT[family]}")
     try:
         builder(paths, out_path)
-    except Exception as exc:  # noqa: BLE001 — mọi lỗi đọc/ghi quy về 1 thông báo
+    except Exception as exc:  # noqa: BLE001 — all read/write errors collapse to one message
         raise DocSetError(S.MERGE_FAILED.format(error=exc)) from exc
 
     names = [os.path.basename(p) for p in paths]
@@ -630,7 +639,7 @@ def _handle_merge(paths: list[str], user_request: str) -> DocSetResult:
     return DocSetResult(task=TASK_MERGE, analysis=analysis, output_files=[out_path])
 
 
-# ── Ngoài phạm vi 6 tác vụ trên → chuyển cho chat() xử lý chung ─────────────
+# ── Outside the 6 tasks above → hand off to chat() for general handling ────
 
 @log_call
 def _handle_general(files: list[AttachedFile], user_request: str,
@@ -645,27 +654,30 @@ def _handle_general(files: list[AttachedFile], user_request: str,
     return DocSetResult(task=TASK_GENERAL, analysis=text, quota=_quota_of(result))
 
 
-# ── Điểm vào chính ───────────────────────────────────────────────────────────
+# ── Main entry point ──────────────────────────────────────────────────────────
 
 @log_call
 def process_document_set(paths: list[str], user_request: str,
                          checklist: list[str] | None = None,
                          history: list | None = None,
                          business: dict | None = None) -> DocSetResult:
-    """Tác vụ tổng hợp cho chế độ Thư mục.
+    """The aggregate task for Folder mode.
 
-    `paths`: danh sách đường dẫn file input, đủ thể loại (Word/Excel/
-    PowerPoint/PDF/Ảnh). `user_request`: câu lệnh người dùng gõ trong chat.
-    `checklist`: danh sách tên mục cần có, chỉ dùng cho tác vụ rà soát hồ sơ
-    thiếu — nếu bỏ trống, AI sẽ tự suy ra checklist hợp lý (tốn 1 tác vụ AI).
+    `paths`: list of input file paths, any type (Word/Excel/PowerPoint/PDF/
+    Image). `user_request`: the command the user typed in chat. `checklist`:
+    list of required item names, used only for the missing-documents review
+    task — if left empty, the AI infers a reasonable checklist itself
+    (costs 1 AI action).
 
-    Trả về `DocSetResult(task, analysis, output_files)` — `analysis` luôn có
-    giá trị; `output_files` chỉ khác rỗng với tác vụ gộp file / trích xuất &
-    gộp nguồn hỗn hợp (file ghi ở thư mục tạm, chưa phải nơi lưu cuối cùng).
+    Returns `DocSetResult(task, analysis, output_files)` — `analysis` always
+    has a value; `output_files` is only non-empty for the merge / extract &
+    merge mixed sources tasks (the file is written to a temp folder, not the
+    final save location yet).
 
-    Lưu ý chi phí: file ảnh và PDF quét ảnh (không có lớp chữ) luôn cần 1 lượt
-    gọi AI/file để đọc được nội dung (OCR), kể cả với các tác vụ "cục bộ" như
-    tìm kiếm/rà soát — không có cách nào đọc chữ trong ảnh mà không qua AI.
+    Cost note: image files and scanned-image PDFs (no text layer) always
+    need 1 AI call per file to read their content (OCR), even for "local"
+    tasks like search/review — there's no way to read text in an image
+    without going through AI.
     """
     if not paths:
         raise DocSetError(S.NO_FILES_SELECTED)

@@ -1,8 +1,10 @@
-"""AI — nội dung câu trả lời lấy từ server (Claude), còn module này lo phần
-phân loại ý định để giữ UX file-card / ghi đè cho bản MVP.
+"""AI — the actual reply content comes from the server (Claude); this module
+just handles intent classification to preserve the file-card / overwrite UX
+for the MVP.
 
-`build_reply()` (mock cũ) vẫn giữ để chạy offline khi cần; luồng thật dùng
-`classify_intent()` kết hợp text trả về từ server.
+`build_reply()` (the old mock) is kept around to run offline when needed;
+the real flow uses `classify_intent()` combined with text returned by the
+server.
 """
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,8 +18,8 @@ logger = get_logger(__name__)
 @dataclass
 class MockReply:
     text: str
-    artifact: Optional[str] = None   # tên file kết quả đính kèm (card trong chat)
-    is_edit: bool = False            # True → app hỏi ghi đè / lưu bản sao
+    artifact: Optional[str] = None   # result file name attached (card in chat)
+    is_edit: bool = False            # True → the app asks about overwrite / save-a-copy
     edit_keywords: list = field(default_factory=list)
 
 
@@ -27,10 +29,10 @@ _EDIT_WORDS = ("sửa", "chỉnh", "thay", "đổi", "thêm", "xóa", "xoá", "c
 @log_call
 def classify_intent(user_text: str, file_name: Optional[str],
                     file_type: Optional[str]) -> tuple[Optional[str], bool]:
-    """Suy ra (tên file kết quả, có phải yêu cầu chỉnh sửa) từ câu lệnh.
+    """Infers (result file name, whether it's an edit request) from the message.
 
-    Dùng để hiển thị card file đính kèm và modal xác nhận ghi đè — nội dung
-    văn bản thực tế do server (Claude) trả về.
+    Used to display the attached-file card and the overwrite-confirmation
+    modal — the actual reply text comes from the server (Claude).
     """
     low = user_text.lower()
     artifact: Optional[str] = None

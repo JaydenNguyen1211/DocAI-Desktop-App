@@ -1,4 +1,4 @@
-"""Panel Chat AI — bong bóng hội thoại, file card, quick-action chips, streaming."""
+"""AI Chat panel — chat bubbles, file cards, quick-action chips, streaming."""
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -48,7 +48,7 @@ class ChatPanel(QFrame):
         hdr_lay.addWidget(title)
         lay.addWidget(hdr)
 
-        # ── Vùng hội thoại ────────────────────────────────────────────────────
+        # ── Conversation area ───────────────────────────────────────────────────
         self._scroll = QScrollArea()
         self._scroll.setObjectName("chatScroll")
         self._scroll.setWidgetResizable(True)
@@ -71,7 +71,7 @@ class ChatPanel(QFrame):
         self._chips_lay.addStretch()
         lay.addWidget(self._chips_host)
 
-        # ── Ô nhập ────────────────────────────────────────────────────────────
+        # ── Input box ────────────────────────────────────────────────────────
         input_area = QFrame()
         input_area.setObjectName("inputArea")
         in_lay = QHBoxLayout(input_area)
@@ -104,7 +104,7 @@ class ChatPanel(QFrame):
         in_lay.addWidget(self.send_btn)
         lay.addWidget(input_area)
 
-    # ── Gửi tin ───────────────────────────────────────────────────────────────
+    # ── Send message ─────────────────────────────────────────────────────────
 
     @log_call
     def _submit(self):
@@ -116,7 +116,7 @@ class ChatPanel(QFrame):
 
     @log_call
     def send_text(self, text: str):
-        """Gửi hộ (chip click)."""
+        """Send on the caller's behalf (chip click)."""
         self.message_sent.emit(text)
 
     @log_call
@@ -126,7 +126,7 @@ class ChatPanel(QFrame):
 
     @log_call
     def clear(self):
-        """Xóa toàn bộ hội thoại — dùng khi bắt đầu trò chuyện mới."""
+        """Clear the entire conversation — used when starting a new chat."""
         self._stream_bubble = None
         while self._msg_lay.count() > 1:
             item = self._msg_lay.takeAt(0)
@@ -156,7 +156,7 @@ class ChatPanel(QFrame):
             chip.clicked.connect(lambda _, chip_label=label: self.send_text(chip_label))
             self._chips_lay.insertWidget(chip_index, chip)
 
-    # ── Thêm bong bóng ────────────────────────────────────────────────────────
+    # ── Add a bubble ─────────────────────────────────────────────────────────
 
     @log_call
     def _add_row(self, widget, align_right: bool):
@@ -173,8 +173,9 @@ class ChatPanel(QFrame):
 
     @log_call
     def add_widget_row(self, widget, full_width: bool = True):
-        """Chèn 1 widget tuỳ ý vào luồng hội thoại (thẻ chọn loại file, thẻ
-        cảnh báo…) — dùng cho các bước của luồng "Tạo tài liệu mới bằng chat"."""
+        """Insert an arbitrary widget into the conversation flow (file-type
+        picker card, warning card…) — used by the steps of the "create new
+        document via chat" flow."""
         if full_width:
             self._msg_lay.insertWidget(self._msg_lay.count() - 1, widget)
             self._scroll_to_bottom()
@@ -187,8 +188,9 @@ class ChatPanel(QFrame):
 
     @log_call
     def add_ai(self, text: str):
-        """Bong bóng AI tĩnh (không streaming) — dùng cho các câu dẫn ngắn
-        trước thẻ chọn loại file / thẻ gợi ý, khi không cần hiệu ứng gõ chữ."""
+        """Static AI bubble (no streaming) — used for short lead-in lines
+        before a file-type picker / suggestion card, when the typing effect
+        isn't needed."""
         self._add_row(_Bubble(text, "bubbleAI"), align_right=False)
 
     @log_call
@@ -203,9 +205,10 @@ class ChatPanel(QFrame):
     @log_call
     def add_file_card(self, file_name: str, badge: str = "XLS", note: str = "",
                       full_path: str | None = None):
-        """`full_path` (tùy chọn): đường dẫn thật để mở khi bấm vào thẻ — nhãn
-        hiển thị vẫn dùng `file_name` (ngắn gọn). Bỏ trống thì click phát ra
-        chính `file_name` như trước (các nơi gọi cũ, artifact còn là mock)."""
+        """`full_path` (optional): the real path to open when the card is
+        clicked — the displayed label still uses `file_name` (short form).
+        Leave it blank and the click emits `file_name` itself, as before
+        (older call sites where the artifact is still a mock)."""
         label = f"[{badge}]  {file_name}" + (f"  ·  {note}" if note else "")
         card = QPushButton(label)
         card.setProperty("class", "fileCard")

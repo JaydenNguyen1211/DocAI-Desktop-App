@@ -1,4 +1,4 @@
-"""Splash — Đăng nhập / Đăng ký tài khoản DocAI (Firebase Auth)."""
+"""Splash — Log in / sign up for a DocAI account (Firebase Auth)."""
 import re
 
 from PySide6.QtCore import Qt, QTimer
@@ -21,7 +21,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 @log_call
 def detect_ms_word() -> bool:
-    """Kiểm tra máy có đăng ký Word COM không (đọc registry, chỉ có ý nghĩa trên Windows)."""
+    """Check whether Word COM is registered on this machine (reads the
+    registry, only meaningful on Windows)."""
     try:
         import winreg
         winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"))
@@ -32,7 +33,7 @@ def detect_ms_word() -> bool:
 
 @log_call
 def detect_office_engine() -> tuple[str, str]:
-    """Phát hiện engine Office phù hợp với platform hiện tại.
+    """Detect the right Office engine for the current platform.
 
     Returns (engine_key, status_message).
     engine_key: "word_com" | "word_mac" | "libreoffice" | "none"
@@ -139,7 +140,7 @@ class SplashWindow(QWidget):
         self.submit_btn.clicked.connect(self._submit)
         lay.addWidget(self.submit_btn)
 
-        # Chuyển đổi Đăng nhập ↔ Đăng ký
+        # Toggle between Login ↔ Sign up
         switch_row = QHBoxLayout()
         switch_row.addStretch()
         self.switch_hint = QLabel(S.NO_ACCOUNT_HINT)
@@ -178,7 +179,7 @@ class SplashWindow(QWidget):
             self.switch_btn.setText(S.SIGNUP)
         self.error_lbl.setVisible(False)
 
-    # ── Kiểm tra Office engine ───────────────────────────────────────────────
+    # ── Check the Office engine ─────────────────────────────────────────────
 
     @log_call
     def _check_word(self):
@@ -189,7 +190,7 @@ class SplashWindow(QWidget):
         save_config(cfg)
         self.status_lbl.setText(msg)
 
-    # ── Đăng nhập / Đăng ký ──────────────────────────────────────────────────
+    # ── Log in / Sign up ─────────────────────────────────────────────────────
 
     @log_call
     def _show_error(self, msg: str):

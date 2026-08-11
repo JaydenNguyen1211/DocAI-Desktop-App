@@ -1,4 +1,4 @@
-"""Toast đơn giản — báo số liệu prompt caching sau mỗi lần gọi Claude API."""
+"""Simple toast — reports prompt-caching numbers after each Claude API call."""
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel, QWidget
 
@@ -12,11 +12,13 @@ _MARGIN = 16
 
 
 class CacheToast(QLabel):
-    """Banner nhỏ nổi ở góc dưới-phải cửa sổ, tự ẩn sau vài giây.
+    """Small banner floating at the bottom-right of the window, auto-hides
+    after a few seconds.
 
-    `class` (cacheToastHit/New/None) đổi màu tuỳ cache có được đọc hay không —
-    dùng selector .class trong QSS vì attribute selector không tô nền được
-    trên bản Qt đang dùng (xem styles.py).
+    `class` (cacheToastHit/New/None) changes color depending on whether the
+    cache was hit — using the .class selector in QSS because attribute
+    selectors can't paint a background on the Qt version in use (see
+    styles.py).
     """
 
     @log_call

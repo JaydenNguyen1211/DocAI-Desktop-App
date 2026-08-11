@@ -1,22 +1,24 @@
-"""Tính bảng lương kèm BHXH/BHYT/BHTN + thuế TNCN từ bảng chấm công.
+"""Compute payroll along with social/health/unemployment insurance +
+personal income tax from a timesheet.
 
-Cố ý làm TẤT ĐỊNH (deterministic) — không để Claude tự tính toán số liệu
-lương/bảo hiểm/thuế qua chat, đúng nguyên tắc trong tài liệu kế hoạch:
-"DocAI đóng vai trò hỗ trợ tổng hợp, để người dùng hoặc kế toán xác nhận số
-liệu cuối cùng" (mục nghiệp vụ Thuế/BHXH — rủi ro cao nếu tính sai).
+Deliberately made DETERMINISTIC — never let Claude compute payroll/
+insurance/tax figures itself via chat, per the principle in the planning
+docs: "DocAI acts as an aggregation aid, leaving the user or accountant to
+confirm the final figures" (Tax/Social-Insurance business area — high risk
+if miscalculated).
 
-Luồng: người dùng mở 1 file Excel "bảng chấm công" trong DocAI rồi gõ lệnh
-kiểu "tính lương", "tính BHXH"… → `detect_payroll_intent()` nhận diện cục bộ
-(không tốn lượt gọi AI) → `compute_payroll_file()` đọc file, tính theo tham
-số ở `payroll_rates.py`, ghi ra 1 file "Bảng lương" MỚI (không sửa file chấm
-công gốc) — cùng cơ chế staging + "Bấm để xem trước & lưu" như
-`modules.common.doc_set`.
+Flow: the user opens a "timesheet" Excel file in DocAI then types a command
+like "tính lương" ("compute payroll"), "tính BHXH"… → `detect_payroll_intent()`
+recognizes it locally (no AI call spent) → `compute_payroll_file()` reads the
+file, computes using the parameters in `payroll_rates.py`, writes out a NEW
+"Payroll" file (the original timesheet file is untouched) — same staging +
+"Click to preview & save" mechanism as `modules.common.doc_set`.
 
-Quy ước cột trong file "bảng chấm công" đầu vào (dòng 1 = tiêu đề cột, đọc ở
-sheet đang active). Tên cột nhận diện không phân biệt hoa/thường/dấu, chấp
-nhận vài cách viết phổ biến — xem `_COLUMN_ALIASES`. Bắt buộc phải có ít
-nhất "Họ tên" và "Lương cơ bản"; các cột còn lại có giá trị mặc định hợp lý
-nếu thiếu.
+Column convention in the input "timesheet" file (row 1 = column headers,
+read from the active sheet). Column name recognition is case/diacritic
+insensitive, accepts a few common spellings — see `_COLUMN_ALIASES`. At
+minimum "Full name" and "Base salary" are required; the remaining columns
+fall back to reasonable defaults if missing.
 """
 import os
 import re
@@ -42,18 +44,18 @@ logger = get_logger(__name__)
 
 
 class PayrollError(api_client.ApiError):
-    """Không tính được bảng lương — thông báo tiếng Việt cho người dùng.
+    """Couldn't compute payroll — message shown to the user in Vietnamese.
 
-    Kế thừa `ApiError` (giống `DocSetError`/`ConvertError`) để `CallWorker`
-    phát đúng thông báo qua `err`, không bọc thêm tiền tố "Lỗi không xác
-    định:" — xem `app/thread_worker.py`."""
+    Inherits from `ApiError` (like `DocSetError`/`ConvertError`) so
+    `CallWorker` emits the right message via `err`, without wrapping it in
+    an "Unknown error:" prefix — see `app/thread_worker.py`."""
 
     @log_call
     def __init__(self, message: str):
         super().__init__(message, "payroll_failed")
 
 
-# ── Nhận diện lệnh chat cục bộ (không tốn lượt gọi AI) ───────────────────────
+# ── Local chat command recognition (no AI call spent) ───────────────────────
 
 _INTENT_RE = re.compile(
     r"tính\s*(lại)?\s*lương|bảng\s*lương|tính\s*bhxh|tính\s*bảo\s*hiểm|"
@@ -66,7 +68,7 @@ def detect_payroll_intent(text: str) -> bool:
     return bool(_INTENT_RE.search(text or ""))
 
 
-# ── Đọc bảng chấm công ───────────────────────────────────────────────────────
+# ── Read the timesheet ───────────────────────────────────────────────────────
 
 _COLUMN_ALIASES = {
     "name": {"ho ten", "ho va ten", "ten nhan vien", "nhan vien", "ho ten nhan vien"},
@@ -144,7 +146,7 @@ class EmployeeInput:
 def read_attendance_table(path: str) -> list[EmployeeInput]:
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
-    except Exception as exc:  # noqa: BLE001 — mọi lỗi mở file quy về 1 thông báo
+    except Exception as exc:  # noqa: BLE001 — all file-open errors collapse to one message
         raise PayrollError(S.READ_FAILED.format(name=Path(path).name, error=exc))
 
     ws = wb.active
@@ -170,7 +172,7 @@ def read_attendance_table(path: str) -> list[EmployeeInput]:
         standard_days = _to_number(get("standard_days", 26)) or 26
         actual_days = _to_number(get("actual_days"))
         if not cols.get("actual_days"):
-            actual_days = standard_days  # cột "công thực tế" không có → coi như đi đủ công
+            actual_days = standard_days  # no "actual days worked" column → assume full attendance
 
         employees.append(EmployeeInput(
             name=name,
@@ -187,7 +189,7 @@ def read_attendance_table(path: str) -> list[EmployeeInput]:
     return employees
 
 
-# ── Tính thuế TNCN lũy tiến từng phần ────────────────────────────────────────
+# ── Compute progressive personal income tax ──────────────────────────────────
 
 @log_call
 def compute_progressive_tax(taxable_income: float,
@@ -207,7 +209,7 @@ def compute_progressive_tax(taxable_income: float,
     return round(tax)
 
 
-# ── Tính lương 1 nhân viên ───────────────────────────────────────────────────
+# ── Compute payroll for 1 employee ───────────────────────────────────────────
 
 @dataclass
 class EmployeeResult:
@@ -217,22 +219,22 @@ class EmployeeResult:
     actual_days: float
     standard_days: float
     allowance: float
-    gross_income: float          # lương theo công + phụ cấp, trước khi trừ bảo hiểm
+    gross_income: float          # salary by days worked + allowance, before insurance deductions
     bhxh_nld: int
     bhyt_nld: int
     bhtn_nld: int
-    total_nld: int                # tổng NLĐ tự trích
+    total_nld: int                # total employee-side self-withheld amount
     dependents: int
     family_deduction: int
-    taxable_income: int           # thu nhập tính thuế (đã trừ giảm trừ gia cảnh)
-    pit: int                      # thuế TNCN
-    net_income: int               # lương thực nhận
+    taxable_income: int           # taxable income (after family deduction)
+    pit: int                      # personal income tax
+    net_income: int               # take-home pay
     bhxh_dn: int
     bhyt_dn: int
     bhtn_dn: int
     kpcd_dn: int
     total_dn_insurance: int
-    total_dn_cost: int            # tổng chi phí DN cho nhân viên này (gross + BH DN đóng)
+    total_dn_cost: int            # total employer cost for this employee (gross + employer-side insurance)
 
 
 @log_call
@@ -248,9 +250,10 @@ def compute_employee(emp: EmployeeInput,
     gross_income = luong_theo_cong + emp.allowance
 
     ins = rates.insurance
-    # Mức đóng BHXH/BHYT/BHTN dựa trên lương ghi hợp đồng (basic_salary),
-    # không theo công thực tế — quy ước đơn giản hoá cho MVP, không xử lý
-    # trường hợp nghỉ không lương trọn tháng/nghỉ thai sản (Phase 2).
+    # Social/health/unemployment insurance contribution is based on the
+    # contracted salary (basic_salary), not actual days worked — a
+    # simplified convention for the MVP, doesn't handle a full unpaid month
+    # / maternity leave (Phase 2).
     muc_dong_bhxh = min(emp.basic_salary, rates.bhxh_bhyt_tran())
     muc_dong_bhtn = min(emp.basic_salary, rates.bhtn_tran(emp.region))
 
@@ -285,7 +288,7 @@ def compute_employee(emp: EmployeeInput,
     )
 
 
-# ── Ghi file kết quả ─────────────────────────────────────────────────────────
+# ── Write the result file ────────────────────────────────────────────────────
 
 _MONEY_FMT = "#,##0"
 _HEADER_FONT = Font(bold=True)
@@ -368,18 +371,20 @@ def build_payroll_workbook(results: list[EmployeeResult], out_path: str) -> None
         raise PayrollError(S.OUTPUT_FILE_LOCKED.format(name=Path(out_path).name))
 
 
-# ── Tham số từ server: fetch khi vào hạn, cache local, rơi về mặc định ──────
+# ── Parameters from the server: fetch when due, cache locally, fall back to
+#    defaults ────────────────────────────────────────────────────────────
 #
-# Vì sao KHÔNG bắt buộc gọi mạng mỗi lần tính lương: tính năng này cố ý thiết
-# kế chạy được hoàn toàn offline (không tốn quota AI). Server (`GET /rates`,
-# xem `docai-server/functions/src/index.ts`) chỉ là NGUỒN CẬP NHẬT tùy chọn —
-# sửa mức trên Firestore Console có hiệu lực cho mọi máy trong vòng
-# `_RATES_TTL_SECONDS`, không cần build lại/update app. Nếu server chưa
-# deploy hoặc máy đang offline, tự động dùng cache lần fetch gần nhất, rồi
-# mới tới mức mặc định cứng trong `payroll_rates.py`.
+# Why the network call is NOT mandatory on every payroll run: this feature
+# is deliberately designed to work fully offline (no AI quota spent). The
+# server (`GET /rates`, see `docai-server/functions/src/index.ts`) is only
+# an OPTIONAL update source — editing the rates in the Firestore Console
+# takes effect on every machine within `_RATES_TTL_SECONDS`, no app
+# rebuild/update needed. If the server isn't deployed yet or the machine is
+# offline, it automatically falls back to the most recent fetch's cache,
+# then to the hardcoded defaults in `payroll_rates.py`.
 
 _RATES_CACHE_KEY = "payroll_rates_cache"
-_RATES_TTL_SECONDS = 24 * 3600  # đủ nhanh để 1 lần sửa trên Firestore lan tới mọi máy trong ngày
+_RATES_TTL_SECONDS = 24 * 3600  # fast enough that a Firestore edit reaches every machine within a day
 
 
 @log_call
@@ -426,7 +431,7 @@ def _cached_rates(cfg: dict) -> PayrollRates | None:
         return None
     try:
         return _parse_server_rates(cache["rates"])
-    except Exception:  # noqa: BLE001 — cache hỏng/đổi cấu trúc → coi như chưa có cache
+    except Exception:  # noqa: BLE001 — corrupted/reshaped cache → treat as no cache
         logger.warning("Cached payroll rates are malformed — treating as no cache.",
                        exc_info=True)
         return None
@@ -434,9 +439,10 @@ def _cached_rates(cfg: dict) -> PayrollRates | None:
 
 @log_call
 def get_active_rates(force_refresh: bool = False) -> PayrollRates:
-    """Tham số đang dùng để tính lương: ưu tiên fetch server nếu cache đã
-    quá hạn (hoặc `force_refresh=True`); lỗi mạng/server → dùng cache gần
-    nhất; chưa từng fetch được lần nào → dùng mặc định cứng trong app."""
+    """The parameters currently used for payroll: prefers fetching from the
+    server if the cache has expired (or `force_refresh=True`); on network/
+    server error → uses the most recent cache; never successfully fetched →
+    uses the app's hardcoded defaults."""
     cfg = load_config()
     cache = cfg.get(_RATES_CACHE_KEY) or {}
     stale = (time.time() - cache.get("fetched_at", 0)) > _RATES_TTL_SECONDS
@@ -453,13 +459,13 @@ def get_active_rates(force_refresh: bool = False) -> PayrollRates:
             logger.warning(
                 "Could not fetch payroll rates from server — falling back to cache/defaults.",
                 exc_info=True)
-            # offline / server chưa deploy route /rates → rơi xuống cache/mặc định
+            # offline / server hasn't deployed the /rates route yet → fall through to cache/defaults
 
     cached = _cached_rates(cfg)
     return cached if cached is not None else DEFAULT_PAYROLL_RATES
 
 
-# ── Điểm vào chính ───────────────────────────────────────────────────────────
+# ── Main entry point ──────────────────────────────────────────────────────────
 
 @log_call
 def _staging_dir() -> str:
@@ -491,11 +497,13 @@ class PayrollRunResult:
 @log_call
 def compute_payroll_file(path: str, out_path: str | None = None,
                          rates: PayrollRates | None = None) -> PayrollRunResult:
-    """Đọc bảng chấm công ở `path`, tính lương + BHXH/BHYT/BHTN + thuế TNCN
-    cho từng nhân viên (tất định, không gọi AI để tính toán — chỉ 1 lượt gọi
-    mạng NHẸ, không tốn quota, để đồng bộ tham số nếu cache đã cũ), ghi kết
-    quả ra 1 file Excel mới ở thư mục staging (chưa phải nơi lưu cuối cùng —
-    theo đúng quy ước `modules.common.doc_set`). Trả về `PayrollRunResult`."""
+    """Read the timesheet at `path`, compute payroll + social/health/
+    unemployment insurance + personal income tax for each employee
+    (deterministic, no AI call for the computation — only 1 LIGHT network
+    call, no quota spent, to sync parameters if the cache is stale), write
+    the result to a new Excel file in the staging folder (not the final save
+    location yet — per the `modules.common.doc_set` convention). Returns a
+    `PayrollRunResult`."""
     if rates is None:
         rates = get_active_rates()
     employees = read_attendance_table(path)

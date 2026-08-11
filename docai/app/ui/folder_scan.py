@@ -1,5 +1,5 @@
-"""Quét thư mục làm việc (chế độ Thư mục) — liệt kê file hỗ trợ theo loại,
-nhóm theo thư mục con cấp 1, bỏ qua định dạng chưa hỗ trợ."""
+"""Scan the working folder (Folder mode) — list supported files by type,
+grouped by top-level subfolder, skipping unsupported formats."""
 import os
 from pathlib import Path
 
@@ -13,24 +13,25 @@ logger = get_logger(__name__)
 
 
 class ScannedFile:
-    """Một file hỗ trợ tìm thấy trong thư mục làm việc."""
+    """A supported file found in the working folder."""
 
     __slots__ = ("path", "name", "group", "ext_type")
 
     @log_call
     def __init__(self, path: str, name: str, group: str, ext_type: str):
-        self.path = path        # đường dẫn tuyệt đối
-        self.name = name        # tên file
-        self.group = group      # thư mục con cấp 1 so với gốc ("" = ngay tại gốc)
+        self.path = path        # absolute path
+        self.name = name        # file name
+        self.group = group      # first-level subfolder relative to the root ("" = at the root)
         self.ext_type = ext_type
 
 
 class FolderScanWorker(QThread):
-    """Quét đệ quy `root` ở luồng nền, phát tiến trình theo từng file đã xét."""
+    """Recursively scans `root` on a background thread, emitting progress
+    for each file examined."""
 
-    # (số file đã xét, tổng số file trong cây, đếm file hỗ trợ theo loại)
+    # (files examined so far, total files in the tree, counts by supported type)
     progress = Signal(int, int, dict)
-    # (danh sách ScannedFile hỗ trợ, đếm theo loại)
+    # (list of supported ScannedFile, counts by type)
     done = Signal(list, dict)
 
     @log_call
@@ -44,9 +45,10 @@ class FolderScanWorker(QThread):
         try:
             all_paths = []
             for dirpath, dirnames, filenames in os.walk(root):
-                # Bỏ qua thư mục thùng rác nội bộ của DocAI (xem
-                # `modules.common.folder_ops.delete_file_with_undo`) — file
-                # vừa "xóa" (có thể hoàn tác) không được hiện lại như file thật.
+                # Skip DocAI's internal trash folder (see
+                # `modules.common.folder_ops.delete_file_with_undo`) — a file
+                # that was just "deleted" (undoable) shouldn't show up again
+                # as if it were a real file.
                 dirnames[:] = [d for d in dirnames if d != ".docai_trash"]
                 all_paths.extend(Path(dirpath) / fn for fn in filenames)
         except OSError:

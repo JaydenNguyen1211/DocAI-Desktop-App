@@ -100,9 +100,9 @@ def extract_pptx(path: str) -> AttachedFile:
 
 @log_call
 def pdf_page_texts(path: str) -> list[str]:
-    """Văn bản từng trang PDF (rỗng nếu trang không có lớp chữ — VD PDF quét
-    ảnh thuần túy). Dùng cho tính năng "Trích xuất toàn bộ văn bản" (cục bộ,
-    không qua AI) và tìm kiếm từ khóa trong PDF."""
+    """Text for each PDF page (empty if the page has no text layer — e.g. a
+    pure scanned-image PDF). Used by the "Extract full text" feature (local,
+    no AI) and PDF keyword search."""
     doc = fitz.open(path)
     try:
         return [page.get_text().strip() for page in doc]

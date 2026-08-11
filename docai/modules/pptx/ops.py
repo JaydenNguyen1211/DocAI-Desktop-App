@@ -1,11 +1,12 @@
-"""Bộ thao tác chỉnh sửa file PowerPoint (.pptx) cho luồng sửa-bằng-chat.
+"""The set of PowerPoint (.pptx) edit operations for the edit-via-chat flow.
 
-Mirror `word_ops.py`: `outline_text()` mô tả slide/shape để Claude nhắm đúng
-vị trí; `apply_edits()` thực thi danh sách lệnh sửa Claude trả về.
+Mirrors `word_ops.py`: `outline_text()` describes slides/shapes so Claude can
+target the right position; `apply_edits()` executes the list of edit
+commands Claude returns.
 
-python-pptx không có API dời/xóa slide sẵn — thao tác trực tiếp trên
-`prs.slides._sldIdLst` (danh sách slide trong XML) như cách làm phổ biến với
-thư viện này.
+python-pptx has no built-in API to move/delete slides — operate directly on
+`prs.slides._sldIdLst` (the slide list in the XML), the common approach with
+this library.
 """
 from pathlib import Path
 
@@ -23,18 +24,18 @@ logger = get_logger(__name__)
 
 
 class PptxOpError(Exception):
-    """Lệnh sửa không hợp lệ — thông báo tiếng Việt cho người dùng."""
+    """Invalid edit command — message shown to the user in Vietnamese."""
 
 
-# Các thao tác được phép — cũng là danh sách server mô tả cho Claude.
+# Allowed operations — also the list the server describes to Claude.
 OPS = (
-    "set_text",       # đặt lại toàn bộ nội dung chữ của 1 shape
-    "format_text",    # font/cỡ/màu/đậm/nghiêng/gạch chân/căn lề
-    "set_list",       # đặt/bỏ danh sách gạch đầu dòng hoặc đánh số
-    "add_slide",      # thêm slide mới
-    "delete_slide",   # xóa slide
-    "move_slide",     # đổi vị trí slide
-    "insert_image",   # chèn ảnh (từ file cục bộ có thật) vào slide
+    "set_text",       # reset a shape's entire text content
+    "format_text",    # font/size/color/bold/italic/underline/alignment
+    "set_list",       # set/unset a bullet or numbered list
+    "add_slide",      # add a new slide
+    "delete_slide",   # delete a slide
+    "move_slide",     # change a slide's position
+    "insert_image",   # insert an image (from a real local file) into a slide
 )
 
 _LAYOUT_MAP = {"title": 0, "title_content": 1, "two_content": 3, "blank": 6}
@@ -66,11 +67,11 @@ def _clean_hex(color) -> str:
     return hex_color
 
 
-# ── Đọc cấu trúc ───────────────────────────────────────────────────────────
+# ── Read structure ────────────────────────────────────────────────────────
 
 @log_call
 def outline_text(path: str) -> str:
-    """Outline dạng văn bản gọn cho prompt."""
+    """A compact text-form outline for the prompt."""
     prs = Presentation(path)
     lines = [f"Bài trình bày có {len(prs.slides)} slide."]
     for si, slide in enumerate(prs.slides):
@@ -90,7 +91,7 @@ def outline_text(path: str) -> str:
     return "\n".join(lines)
 
 
-# ── Tiện ích ────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 @log_call
 def _slide_at(prs, edit: dict, key: str = "slide"):
@@ -131,11 +132,12 @@ def _move_slide_element(prs, from_pos: int, to_pos: int):
     xml_slides.insert(to_pos, el)
 
 
-# ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
+# ── Execute edit commands ────────────────────────────────────────────────────
 
 @log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
-    """Áp lần lượt các lệnh sửa lên file, lưu một lần. Trả về mô tả từng lệnh."""
+    """Apply the edit commands to the file in order, save once. Returns a
+    description of each command."""
     if not edits:
         return []
 
@@ -176,7 +178,7 @@ def _run_op(prs, op: str, edit: dict) -> str:
     if op == "format_text":
         return _format_text(shape, edit)
 
-    # set_list — op cuối cùng còn lại trong OPS
+    # set_list — the last remaining op in OPS
     return _set_list(shape, edit)
 
 
@@ -350,6 +352,6 @@ def _insert_image(slide, edit: dict) -> str:
 
     try:
         slide.shapes.add_picture(str(image_path), left, top, **kwargs)
-    except Exception as exc:  # noqa: BLE001 — file ảnh hỏng/không đọc được
+    except Exception as exc:  # noqa: BLE001 — corrupted/unreadable image file
         raise PptxOpError(f"Không chèn được ảnh: {exc}")
     return f"chèn ảnh «{Path(image_path).name}» vào slide"

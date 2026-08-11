@@ -9,13 +9,13 @@ from ...logging_config import get_logger, log_call
 logger = get_logger(__name__)
 
 _CHART_TYPE_LABEL = {"BarChart": "cột", "LineChart": "đường", "PieChart": "tròn"}
-_EMU_PER_PX = 914400 / 96          # 96 DPI — cùng mốc quy đổi với DEF_CW/DEF_RH
+_EMU_PER_PX = 914400 / 96          # 96 DPI — same conversion baseline as DEF_CW/DEF_RH
 
 
 @log_call
 def _chart_title_text(chart):
-    """Chữ tiêu đề chart (nếu có) — chỉ dùng cho placeholder khi không xuất
-    được ảnh chart thật qua COM."""
+    """The chart's title text (if any) — only used for the placeholder when
+    the real chart image can't be exported via COM."""
     try:
         title = chart.title
         if title and title.tx and title.tx.rich:
@@ -28,10 +28,11 @@ def _chart_title_text(chart):
 
 @log_call
 def _chart_extent(chart, def_cw: int, def_rh: int):
-    """Vị trí/kích thước chart theo cột-hàng (1-based, đơn vị pixel CHƯA nhân
-    S — cùng thang với cw_list/rh_list) từ anchor đọc lại sau khi lưu file
-    (OneCellAnchor/TwoCellAnchor có `_from`/`ext` tính bằng EMU). Dùng để (1)
-    mở rộng canvas nếu chart nằm ngoài vùng dữ liệu, (2) biết ô để ghép ảnh."""
+    """Chart position/size in column-row terms (1-based, pixel units NOT yet
+    multiplied by S — same scale as cw_list/rh_list), read back from the
+    anchor after the file is saved (OneCellAnchor/TwoCellAnchor have
+    `_from`/`ext` in EMU). Used to (1) expand the canvas if the chart sits
+    outside the data range, (2) know which cell to composite the image into."""
     anchor = getattr(chart, "anchor", None)
     frm = getattr(anchor, "_from", None)
     if frm is None:
@@ -121,9 +122,10 @@ def _render_excel_sheets(path: str) -> tuple[list[str], str]:
         return str(value)
 
     wb = openpyxl.load_workbook(path, data_only=True)
-    # Load riêng data_only=False để lấy chữ công thức khi openpyxl chưa có giá
-    # trị cache (công thức do chính AI vừa ghi — chưa từng mở lại bằng Excel
-    # thật nên không có kết quả tính sẵn, value ở bản data_only=True là None).
+    # Load a separate data_only=False copy to get the formula text when
+    # openpyxl has no cached value (a formula the AI itself just wrote —
+    # never reopened in real Excel yet so there's no precomputed result, the
+    # value in the data_only=True copy is None).
     wb_formulas = openpyxl.load_workbook(path, data_only=False)
     tmp_dir = tempfile.mkdtemp(prefix="docai_pages_")
     png_paths: list[str] = []

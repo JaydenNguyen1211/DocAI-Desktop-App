@@ -1,10 +1,11 @@
-"""Dựng file Word/Excel/PowerPoint mới từ nội dung AI soạn (tính năng "Tạo
-tài liệu mới bằng chat").
+"""Build a new Word/Excel/PowerPoint file from AI-generated content (the
+"Create a new document via chat" feature).
 
-AI (server) được yêu cầu trả về văn bản có mốc `### Trang N: <tiêu đề>` để
-tách thành từng trang/slide — nếu AI không theo đúng định dạng,
-`parse_sections()` tự chia đều đoạn văn. Excel dùng lại nguyên quy ước
-`--- Sheet: X ---` đã có sẵn ở `savers.save_excel`, không cần cú pháp riêng.
+The AI (server) is asked to return text with `### Trang N: <title>` markers
+so it can be split into pages/slides — if the AI doesn't follow the format,
+`parse_sections()` falls back to splitting paragraphs evenly. Excel reuses
+the existing `--- Sheet: X ---` convention already in `savers.save_excel`, no
+separate syntax needed.
 """
 import re
 from dataclasses import dataclass
@@ -43,11 +44,12 @@ class SectionSpec:
 
 @log_call
 def parse_sections(raw_text: str, expected_count: int = 0) -> list[SectionSpec]:
-    """Tách văn bản AI trả về thành từng trang/phần theo mốc `### Trang N: …`.
+    """Split the AI-returned text into pages/sections by the `### Trang N: …`
+    marker.
 
-    Nếu AI không theo đúng định dạng, chia đều đoạn văn thành khoảng
-    `expected_count` phần (chỉ để có kết quả hợp lý, không cần chính xác
-    tuyệt đối số trang).
+    If the AI doesn't follow the format, split paragraphs evenly into about
+    `expected_count` sections (just to get a reasonable result, doesn't need
+    to be exactly the right page count).
     """
     raw_text = (raw_text or "").strip()
     if not raw_text:

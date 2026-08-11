@@ -1,4 +1,4 @@
-"""Chuyển đổi file sang PDF qua LibreOffice CLI — dùng trên macOS/Linux thay COM."""
+"""Convert files to PDF via the LibreOffice CLI — used on macOS/Linux instead of COM."""
 import os
 import shutil
 import subprocess
@@ -29,7 +29,7 @@ def _find_soffice() -> str:
 
 @log_call
 def convert_to_pdf(input_path: str, out_path: str) -> str:
-    """Chuyển đổi file sang PDF rồi di chuyển kết quả tới `out_path`."""
+    """Convert the file to PDF then move the result to `out_path`."""
     soffice = _find_soffice()
     abs_input = os.path.abspath(input_path)
     abs_out = os.path.abspath(out_path)

@@ -1,5 +1,5 @@
-"""Tiện ích ảnh/trang dùng chung cho các bộ renderer theo định dạng
-(word/excel/pptx/image/pdf) — nguồn trang lazy/eager + chuyển đổi PIL↔Qt."""
+"""Shared image/page utilities for the per-format renderers
+(word/excel/pptx/image/pdf) — lazy/eager page sources + PIL↔Qt conversion."""
 import os
 import threading
 
@@ -19,14 +19,15 @@ except ImportError:
 
 
 class LazyPdfSource:
-    """Nguồn trang PDF render theo yêu cầu.
+    """PDF page source that renders on demand.
 
-    Dùng cho PDF gốc, và cho Word/PPT sau khi đã quy về 1 PDF trung gian
-    qua COM. Mở file 1 lần lấy ngay tổng số trang + kích thước trang (đều
-    là đọc metadata, không raster) — rẻ dù tài liệu vài nghìn trang. Chỉ
-    khi `png_path(i)` được gọi thì trang đó mới thực sự được raster ra PNG
-    (và cache lại), để widget xem trước chỉ tải trang nào người dùng đang
-    thực sự cuộn tới thay vì raster hết cả cuốn sách.
+    Used for native PDFs, and for Word/PPT after they've been converted to
+    an intermediate PDF via COM. The file is opened once to get the page
+    count + page sizes right away (both are metadata reads, no rasterizing)
+    — cheap even for a document with thousands of pages. A page is only
+    actually rasterized to PNG (and cached) when `png_path(i)` is called,
+    so the preview widget only loads the pages the user is actually
+    scrolling to instead of rasterizing the whole book.
     """
 
     @log_call
@@ -86,8 +87,8 @@ class LazyPdfSource:
 
 
 class EagerPageSource:
-    """Nguồn trang đã raster sẵn hết — dùng cho Excel/ảnh, vốn rất ít trang
-    (số sheet, hoặc 1) nên không cần tải lười."""
+    """Page source that's already fully rasterized — used for Excel/images,
+    which have very few pages (sheet count, or 1) so lazy loading isn't needed."""
 
     @log_call
     def __init__(self, png_paths: list[str], tmp_dir: str):
@@ -117,9 +118,10 @@ class EagerPageSource:
 
 @log_call
 def pil_to_qimage(pil_img) -> QImage:
-    """An toàn gọi từ luồng nền (khác QPixmap, QImage không cần luồng GUI).
-    `.copy()` để QImage sở hữu buffer riêng, tách khỏi bytes Python cục bộ
-    trước khi vượt qua ranh giới luồng."""
+    """Safe to call from a background thread (unlike QPixmap, QImage doesn't
+    need the GUI thread). `.copy()` so the QImage owns its own buffer,
+    detached from the local Python bytes, before crossing the thread
+    boundary."""
     pil_img = pil_img.convert("RGB")
     data = pil_img.tobytes("raw", "RGB")
     qimg = QImage(data, pil_img.width, pil_img.height,

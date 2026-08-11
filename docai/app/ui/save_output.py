@@ -1,11 +1,13 @@
-"""Hộp thoại "Lưu file" cho các file output đang ở dạng staging (tạm) —
-dùng sau khi `modules.common.doc_set.process_document_set()` trả về
-`output_files`. Chưa có thiết kế riêng cho bước này nên dùng hộp thoại lưu
-file chuẩn của hệ điều hành, theo đúng cách `main_window._on_extract_text()`
-đã làm cho tính năng trích xuất văn bản PDF.
+""""Save file" dialog for output files still in staging (temporary) form —
+used after `modules.common.doc_set.process_document_set()` returns
+`output_files`. There's no dedicated design for this step yet, so it uses
+the OS's standard save-file dialog, the same way
+`main_window._on_extract_text()` already does for the PDF text-extraction
+feature.
 
-File chỉ thực sự được tạo ở vị trí người dùng chọn SAU khi xác nhận ở đây —
-file staging tạm không tự động biến mất, chỉ được copy sang nơi lưu.
+The file is only actually created at the location the user picks AFTER
+confirming here — the temporary staging file doesn't disappear on its own,
+it's just copied to the save location.
 """
 import shutil
 from pathlib import Path
@@ -27,8 +29,8 @@ _FILTER_BY_EXT = {
 
 @log_call
 def save_staged_file(parent: QWidget, staged_path: str, suggested_name: str = "") -> str | None:
-    """Mở hộp thoại chọn nơi lưu, copy file staging sang đó. Trả về đường dẫn
-    đã lưu, hoặc None nếu người dùng hủy / có lỗi ghi file."""
+    """Open a save-location dialog and copy the staged file there. Returns the
+    saved path, or None if the user canceled / a write error occurred."""
     staged = Path(staged_path)
     default_name = suggested_name or staged.name
     file_filter = _FILTER_BY_EXT.get(staged.suffix.lower(), S.FILTER_ALL)

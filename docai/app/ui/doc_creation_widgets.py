@@ -1,5 +1,5 @@
-"""Thẻ hội thoại nội tuyến cho luồng "Tạo tài liệu mới bằng chat" (7.2, EC4,
-EC5, EC6) — chèn vào `ChatPanel` qua `add_widget_row()`."""
+"""Inline conversation cards for the "create new document via chat" flow
+(7.2, EC4, EC5, EC6) — inserted into `ChatPanel` via `add_widget_row()`."""
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QButtonGroup,
@@ -42,9 +42,9 @@ class _TypeCard(QPushButton):
 
 
 class DocTypePicker(QFrame):
-    """7.2 — thẻ chọn Word/Excel/PowerPoint + nút xác nhận."""
+    """7.2 — Word/Excel/PowerPoint picker card + confirm button."""
 
-    confirmed = Signal(str)   # file_type đã chọn
+    confirmed = Signal(str)   # the chosen file_type
 
     @log_call
     def __init__(self, options: list[tuple[str, str, str, str, str]],
@@ -108,7 +108,7 @@ class DocTypePicker(QFrame):
 
 
 class SuggestionCard(QFrame):
-    """EC6 — câu AI hỏi lại + chip gợi ý trả lời nhanh."""
+    """EC6 — AI's clarifying question + quick-reply suggestion chips."""
 
     chip_clicked = Signal(str)
 
@@ -155,7 +155,7 @@ class SuggestionCard(QFrame):
 
 
 class QuotaWarningCard(QFrame):
-    """EC4 — hết tác vụ AI trong tháng."""
+    """EC4 — out of AI tasks for the month."""
 
     upgrade_clicked = Signal()
     dismissed = Signal()
@@ -206,7 +206,7 @@ class QuotaWarningCard(QFrame):
 
 
 class GenErrorCard(QFrame):
-    """EC5 — soạn thất bại giữa chừng."""
+    """EC5 — generation failed partway through."""
 
     retry_clicked = Signal()
     save_partial_clicked = Signal()

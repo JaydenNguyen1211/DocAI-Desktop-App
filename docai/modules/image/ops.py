@@ -1,9 +1,11 @@
-"""Xử lý ảnh: (1) chuẩn bị ảnh gửi lên Claude Vision (OCR/trích xuất/tóm tắt),
-(2) bộ thao tác sửa ảnh qua chat (xoay/cắt/đổi kích thước/nén).
+"""Image processing: (1) prepare images sent to Claude Vision (OCR/extract/
+summarize), (2) the set of image edit operations via chat (rotate/crop/
+resize/compress).
 
-`prepare_for_vision()` dùng chung cho MỌI lệnh gọi Claude Vision — đây chính là
-"tự chỉnh ảnh trước khi OCR" (xoay đúng chiều theo EXIF, tăng tương phản, giới
-hạn kích thước): chạy tự động ở tầng hạ tầng, không phải một nút riêng.
+`prepare_for_vision()` is shared by EVERY call to Claude Vision — this is the
+"auto-adjust the image before OCR" step (rotate correctly per EXIF, boost
+contrast, cap size): runs automatically at the infrastructure layer, not a
+separate button.
 """
 import base64
 import io
@@ -15,24 +17,25 @@ from ...logging_config import get_logger, log_call
 
 logger = get_logger(__name__)
 
-_VISION_MAX_EDGE = 2000  # px — dưới ngưỡng high-res 2576px của Claude, vẫn đủ nét để đọc chữ
+_VISION_MAX_EDGE = 2000  # px — below Claude's 2576px high-res threshold, still sharp enough to read text
 _VISION_MEDIA_TYPE = {"JPEG": "image/jpeg", "PNG": "image/png"}
 
 
 class ImageOpError(Exception):
-    """Lệnh sửa ảnh không hợp lệ — thông báo tiếng Việt cho người dùng."""
+    """Invalid image edit command — message shown to the user in Vietnamese."""
 
 
-# Các thao tác được phép — cũng là danh sách server mô tả cho Claude.
+# Allowed operations — also the list the server describes to Claude.
 OPS = ("rotate", "crop", "resize", "compress")
 
 
-# ── Chuẩn bị ảnh gửi Claude Vision ───────────────────────────────────────────
+# ── Prepare images sent to Claude Vision ─────────────────────────────────────
 
 @log_call
 def prepare_for_vision(path: str) -> tuple[bytes, str]:
-    """Trả về (bytes, media_type) đã tự chỉnh — xoay đúng chiều theo EXIF, tăng
-    tương phản nhẹ, giới hạn cạnh dài — dùng trước khi gửi ảnh lên Claude."""
+    """Returns (bytes, media_type) already auto-adjusted — rotated correctly
+    per EXIF, slight contrast boost, long edge capped — used before sending
+    the image to Claude."""
     img = Image.open(path)
     img = ImageOps.exif_transpose(img)
     if img.mode not in ("RGB", "L"):
@@ -55,12 +58,12 @@ def prepare_for_vision(path: str) -> tuple[bytes, str]:
 
 @log_call
 def b64_for_vision(path: str) -> tuple[str, str]:
-    """Như prepare_for_vision() nhưng trả base64 sẵn để đưa vào JSON gửi server."""
+    """Like prepare_for_vision() but returns base64 ready to drop into the JSON sent to the server."""
     data, media_type = prepare_for_vision(path)
     return base64.b64encode(data).decode("ascii"), media_type
 
 
-# ── Đọc cấu trúc ───────────────────────────────────────────────────────────
+# ── Read structure ────────────────────────────────────────────────────────
 
 @log_call
 def outline_text(path: str) -> str:
@@ -71,7 +74,7 @@ def outline_text(path: str) -> str:
     return f"Ảnh {fmt}, kích thước {width}×{height}px, dung lượng {size_kb:.0f}KB."
 
 
-# ── Thực thi lệnh sửa ──────────────────────────────────────────────────────
+# ── Execute edit commands ────────────────────────────────────────────────────
 
 @log_call
 def _need(edit: dict, key: str):
@@ -83,7 +86,8 @@ def _need(edit: dict, key: str):
 
 @log_call
 def apply_edits(path: str, edits: list[dict]) -> list[str]:
-    """Áp lần lượt các lệnh sửa lên ảnh, lưu một lần. Trả về mô tả từng lệnh."""
+    """Apply the edit commands to the image in order, save once. Returns a
+    description of each command."""
     if not edits:
         return []
 
@@ -130,7 +134,7 @@ def apply_edits(path: str, edits: list[dict]) -> list[str]:
 def _run_op(img: Image.Image, op: str, edit: dict):
     if op == "rotate":
         angle = float(_need(edit, "angle"))
-        img2 = img.rotate(-angle, expand=True)  # âm để khớp chiều kim đồng hồ theo cảm nhận người dùng
+        img2 = img.rotate(-angle, expand=True)  # negated to match users' intuition of clockwise rotation
         return img2, f"xoay ảnh {angle:g}°"
 
     if op == "crop":
@@ -145,7 +149,7 @@ def _run_op(img: Image.Image, op: str, edit: dict):
         img2 = img.crop((left, top, right, bottom))
         return img2, f"cắt ảnh còn vùng ({left},{top})–({right},{bottom})"
 
-    # resize — op còn lại trong OPS (compress đã xử lý riêng ở apply_edits)
+    # resize — the remaining op in OPS (compress is handled separately in apply_edits)
     width = edit.get("width")
     height = edit.get("height")
     if not width and not height:

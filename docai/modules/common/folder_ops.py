@@ -1,10 +1,12 @@
-"""Thao tác file trực tiếp trong thư mục làm việc qua chat — tạo file mới,
-xóa file (có hoàn tác), đổi tên file, hoặc mở + sửa 1 file được nhắc tên —
-theo đúng luồng thiết kế ở `D:\\Tools\\DocAI\\Plan\\V4\\Folder\\screens_folder`.
+"""Direct file operations in the working folder via chat — create a new
+file, delete a file (with undo), rename a file, or open + edit a named
+file — per the design flow at
+`D:\\Tools\\DocAI\\Plan\\V4\\Folder\\screens_folder`.
 
-Đây là các thao tác CỤC BỘ, không gọi AI để phân loại (regex tiếng Việt) —
-khác với `doc_set.py` (phân tích/so sánh/gộp NHIỀU file). Ưu tiên nhận diện ở
-đây trước, không khớp mới rơi xuống `doc_set.process_document_set()`.
+These are LOCAL operations, no AI call for classification (Vietnamese
+regex) — unlike `doc_set.py` (analyze/compare/merge MULTIPLE files).
+Recognition here takes priority; if nothing matches, fall through to
+`doc_set.process_document_set()`.
 """
 import os
 import re
@@ -46,8 +48,8 @@ _CAMEL_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 @log_call
 def _norm(text: str) -> str:
-    """Tách camelCase (VD "HopDong" → "Hop Dong") trước khi chuẩn hóa — tên
-    file thường ghép kiểu này, không có dấu cách giữa các từ."""
+    """Split camelCase (e.g. "HopDong" → "Hop Dong") before normalizing —
+    file names are often concatenated this way, no space between words."""
     text = _CAMEL_RE.sub(" ", text)
     text = unicodedata.normalize("NFD", text)
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
@@ -56,8 +58,9 @@ def _norm(text: str) -> str:
 
 @log_call
 def _name_mentioned(text_words: set[str], path: str, threshold: float = 0.75) -> bool:
-    """Word-overlap, ngưỡng cao hơn `doc_set.py` vì dùng để suy ra file cho
-    thao tác xóa/đổi tên/mở — cần chắc chắn hơn mức "đưa vào phân tích"."""
+    """Word-overlap, higher threshold than `doc_set.py` because it's used to
+    infer the file for delete/rename/open — needs more certainty than the
+    "include in analysis" bar."""
     stem_words = {w for w in _norm(os.path.splitext(os.path.basename(path))[0]).split() if len(w) >= 2}
     if not stem_words:
         return False
@@ -74,8 +77,9 @@ def _quoted_names(text: str) -> list[str]:
 
 @log_call
 def _resolve_by_name(target_name: str | None, text: str, folder_files: list[str]) -> str | None:
-    """Ưu tiên khớp đúng tên đã trích trong ngoặc kép; nếu không có/không khớp,
-    thử nhận diện tên file được nhắc trong câu (chỉ nhận nếu khớp DUY NHẤT)."""
+    """Prefer an exact match on a name extracted from quotes; if none/no
+    match, try recognizing the file name mentioned in the sentence (only
+    accepted if it's a UNIQUE match)."""
     if target_name:
         target_norm = _norm(os.path.splitext(target_name)[0])
         for path in folder_files:
@@ -86,7 +90,7 @@ def _resolve_by_name(target_name: str | None, text: str, folder_files: list[str]
     return matches[0] if len(matches) == 1 else None
 
 
-# ── Nhận diện lệnh (cục bộ) ──────────────────────────────────────────────────
+# ── Command recognition (local) ──────────────────────────────────────────────
 
 _CREATE_RE = re.compile(r"\btạo\s+(file|tệp)\b", re.IGNORECASE)
 _DELETE_RE = re.compile(r"\bxóa\s+(file|tệp)\b", re.IGNORECASE)
@@ -98,12 +102,12 @@ _RENAME_SPLIT_RE = re.compile(r"(.+?)\s+thành\s+(.+)", re.IGNORECASE)
 @dataclass
 class FileMgmtIntent:
     kind: str                       # "create" | "delete" | "rename" | "open"
-    name: str | None = None         # create: tên file mới
+    name: str | None = None         # create: new file name
     ftype: str | None = None        # create: "word"|"excel"|"ppt"
-    target_path: str | None = None  # delete/rename/open: file đã khớp trong thư mục
-    new_name: str | None = None     # rename: tên mới
-    remainder: str = ""             # open: phần lệnh sửa còn lại sau tên file
-    ambiguous: bool = False         # thiếu thông tin — cần hỏi lại thay vì đoán
+    target_path: str | None = None  # delete/rename/open: matched file in the folder
+    new_name: str | None = None     # rename: the new name
+    remainder: str = ""             # open: the remaining edit command after the file name
+    ambiguous: bool = False         # missing info — ask back instead of guessing
 
 
 @log_call
@@ -168,8 +172,9 @@ def _parse_open(text: str, folder_files: list[str]) -> FileMgmtIntent | None:
 
 @log_call
 def detect_file_mgmt_intent(text: str, folder_files: list[str]) -> FileMgmtIntent | None:
-    """None nếu câu chat không khớp lệnh tạo/xóa/đổi tên/mở nào — caller nên
-    rơi xuống xử lý khác (`doc_set.process_document_set`)."""
+    """None if the chat message doesn't match any create/delete/rename/open
+    command — the caller should fall through to other handling
+    (`doc_set.process_document_set`)."""
     if _CREATE_RE.search(text):
         return _parse_create(text)
     if _DELETE_RE.search(text):
@@ -181,7 +186,7 @@ def detect_file_mgmt_intent(text: str, folder_files: list[str]) -> FileMgmtInten
     return None
 
 
-# ── Thực thi (I/O thật) ──────────────────────────────────────────────────────
+# ── Execution (real I/O) ──────────────────────────────────────────────────────
 
 @log_call
 def create_empty_file(folder: str, name: str, ftype: str) -> str:
@@ -209,8 +214,9 @@ def create_empty_file(folder: str, name: str, ftype: str) -> str:
 
 @log_call
 def delete_file_with_undo(path: str) -> str:
-    """Chuyển vào `.docai_trash` cùng cấp thư mục thay vì xóa hẳn — trả về
-    đường dẫn tạm để `restore_file()` khôi phục lại đúng vị trí cũ."""
+    """Move into `.docai_trash` alongside the folder instead of deleting for
+    real — returns the temp path so `restore_file()` can put it back in its
+    original location."""
     folder = os.path.dirname(path)
     trash_dir = os.path.join(folder, _TRASH_DIRNAME)
     os.makedirs(trash_dir, exist_ok=True)

@@ -1,5 +1,6 @@
-"""Orchestration phi-UI giữa `app.ui.main_window` và tầng `modules`/`pipeline`
-— tách riêng để logic gọi mạng + áp lệnh sửa file không nằm lẫn trong 1 QWidget.
+"""Non-UI orchestration between `app.ui.main_window` and the `modules`/
+`pipeline` layer — kept separate so network calls + applying file edits
+aren't mixed into a QWidget.
 """
 import base64
 from pathlib import Path
@@ -16,11 +17,12 @@ logger = get_logger(__name__)
 _MAX_PDF_ATTACH_BYTES = 30 * 1024 * 1024
 
 
-@log_call(log_result=False)  # kết quả chứa base64 toàn bộ file — quá lớn để log
+@log_call(log_result=False)  # result contains the whole file as base64 — too large to log
 def build_attachment(path: str, file_type: str) -> Optional[dict]:
-    """Đọc file PDF/ảnh đang mở, chuẩn bị base64 để gửi Claude Vision đọc trực
-    tiếp. Trả None nếu không đọc được hoặc không phải loại file hỗ trợ — khi
-    đó server vẫn trả lời được, chỉ là không có nội dung file để tham chiếu."""
+    """Read the currently open PDF/image file and base64-encode it so Claude
+    Vision can read it directly. Returns None if it can't be read or isn't a
+    supported file type — the server can still reply, it just won't have any
+    file content to reference."""
     try:
         if file_type == "pdf":
             data = Path(path).read_bytes()
@@ -45,16 +47,18 @@ def build_attachment(path: str, file_type: str) -> Optional[dict]:
 
 @log_call
 def request_edit(text: str, path: str, ftype: str, history: list) -> dict:
-    """Chạy ở luồng nền: gửi cấu trúc tài liệu + yêu cầu lên server, rồi áp
-    các lệnh sửa Claude trả về. `edits` rỗng → không phải yêu cầu sửa."""
+    """Runs on a background thread: sends the document structure + request
+    to the server, then applies the edit commands Claude returns. An empty
+    `edits` means it wasn't an edit request."""
     try:
         outline = document_outline(path, ftype)
     except EditError as exc:
         raise api_client.ApiError(str(exc), "outline_failed")
 
-    # Ảnh không có "cấu trúc" dạng văn bản như Word/Excel — kèm luôn nội
-    # dung ảnh để Claude vẫn trả lời được câu hỏi không phải lệnh sửa
-    # (VD "ảnh này chụp gì") thay vì chỉ đọc outline kích thước/dung lượng.
+    # Images don't have a text "structure" like Word/Excel — attach the
+    # image content itself so Claude can still answer questions that aren't
+    # edit commands (e.g. "what is this a photo of") instead of only seeing
+    # a size/dimensions outline.
     attachment = build_attachment(path, ftype) if ftype == "image" else None
 
     data = api_client.edit_file(text, Path(path).name, ftype, outline, history,
